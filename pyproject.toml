@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mai"
+version = "0.1.0"
+description = "MAI — Gerenciador local-first de livros"
+readme = "README.md"
+authors = [{name = "Marcus Vinicius"}]
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "sqlalchemy>=2.0",
+  "alembic>=1.13",
+  "httpx>=0.25",
+  "watchdog>=3.0",
+  "ebooklib>=0.18",
+  "pymupdf>=1.23",
+  "pillow>=10.0",
+  "rapidfuzz>=3.6",
+  "rich>=13.0",
+  "python-multipart>=0.0.7",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.2",
+  "tenacity>=8.2",
+  "PySide6>=6.7"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.25",
+  "mypy>=1.7",
+  "ruff>=0.4"
+]
+
+[project.scripts]
+mai-api = "mai.main:run"
+mai-init-db = "mai.db.init:main"
+mai-import = "mai.ingest.cli:main"
+mai-organize = "mai.organizer.cli:main"
+mai-qt = "mai_qt.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mai"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/mai",
+  "README.md",
+  "PRD.md",
+  "db/schema.sql",
+  "scripts"
+]
