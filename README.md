@@ -72,6 +72,7 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 - Rich / Textual (CLI) ou Electron/Tauri/Qt para UI desktop
 
 ## Boas práticas e limites
+- Copie `.env.example` para `.env` e configure `MAI_ADMIN_USERNAME` e `MAI_ADMIN_PASSWORD` antes de expor a API; os valores padrão do código servem apenas para desenvolvimento local.
 - Respeitar ToS/limites de cada API (Open Library desencoraja bulk via REST, use dumps mensais ao precisar de massa).
 - Não remover DRM; somente arquivos legítimos.
 - Cache por ISBN/título com expiração configurável; aplicar backoff exponencial em erros 429/5xx.
