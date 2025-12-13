@@ -8,12 +8,16 @@ services:
     command: ["mai-api"]
     ports:
       - "8000:8000"
-    env_file:
-      - .env
     environment:
       MAI_DB_PATH: /app/var/data/mai.db
       MAI_API_HOST: 0.0.0.0
       MAI_API_PORT: 8000
+      MAI_PDF_OCR_ENABLED: ${MAI_PDF_OCR_ENABLED:-false}
+      MAI_PDF_OCR_LANG: ${MAI_PDF_OCR_LANG:-eng}
+      MAI_PDF_OCR_MAX_PAGES: ${MAI_PDF_OCR_MAX_PAGES:-3}
+      MAI_PDF_OCR_DPI: ${MAI_PDF_OCR_DPI:-200}
+      MAI_PDF_OCR_TIMEOUT_SECONDS: ${MAI_PDF_OCR_TIMEOUT_SECONDS:-10}
+      MAI_PDF_OCR_TRIGGER_TEXT_CHARS: ${MAI_PDF_OCR_TRIGGER_TEXT_CHARS:-40}
     volumes:
       - ./var/data:/app/var/data
       - ./var/uploads:/app/var/uploads
@@ -26,8 +30,6 @@ services:
     command: ["mai-qt"]
     depends_on:
       - api
-    env_file:
-      - .env
     environment:
       MAI_DB_PATH: /app/var/data/mai.db
       MAI_API_URL: http://api:8000
