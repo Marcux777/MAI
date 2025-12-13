@@ -51,6 +51,7 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 - `GET /books?q=...` (FTS + filtros: `author`, `language`, `year`, `tag`).
 - `GET /books/{edition_id}` (detalhes completos + arquivos físicos + hits de provedores).
 - `POST /import/scan` (varre diretórios configurados manualmente).
+- `POST /import/upload` (upload de um arquivo e ingestão imediata).
 - `POST /providers/fetch` (força enriquecimento/reconsulta).
 - `POST /files/attach` (associa arquivo existente a uma edição).
 - `GET /opds/**` (opcional, catálogo OPDS 1.2).
@@ -79,6 +80,13 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 - Armazenar `payload_json` para auditoria e repetir decisões determinísticas.
 - Log estruturado + métricas (taxa de acerto, tempo médio de ingestão, falhas por provedor).
 - Testes unitários (ISBN, normalização, scoring), testes integrados com fixtures de payload e um catálogo de exemplo end-to-end.
+
+## Executar com Docker (1 comando)
+
+- **API (FastAPI)**: `docker compose up --build`  
+  Acesse `http://localhost:8000/docs`.
+- **App desktop Qt (Linux + X11)**: `xhost +local: && docker compose --profile qt up --build`  
+  O banco persiste em `./var/data` (volume montado). Para Wayland/Windows/macOS, rode o Qt nativo por enquanto.
 
 ---
 Para detalhes de implementação veja `db/schema.sql` (DDL completo) e `scripts/ingest_pipeline.py` (esqueleto do scanner + provedores Open Library/Google Books).

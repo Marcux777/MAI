@@ -60,6 +60,10 @@ class Edition(Base):
         secondary="book_tag",
         back_populates="editions",
     )
+    collections: Mapped[List["Collection"]] = relationship(
+        secondary="collection_item",
+        back_populates="editions",
+    )
 
 
 class Author(Base):
@@ -120,6 +124,35 @@ class BookTag(Base):
 
     edition_id: Mapped[int] = mapped_column(ForeignKey("edition.id", ondelete="CASCADE"), primary_key=True)
     tag_id: Mapped[int] = mapped_column(ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True)
+
+
+class Collection(Base):
+    __tablename__ = "collection"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    parent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("collection.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    parent: Mapped[Optional["Collection"]] = relationship(remote_side=[id], back_populates="children")
+    children: Mapped[List["Collection"]] = relationship(back_populates="parent")
+    editions: Mapped[List["Edition"]] = relationship(
+        secondary="collection_item",
+        back_populates="collections",
+    )
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_item"
+
+    collection_id: Mapped[int] = mapped_column(
+        ForeignKey("collection.id", ondelete="CASCADE"), primary_key=True
+    )
+    edition_id: Mapped[int] = mapped_column(
+        ForeignKey("edition.id", ondelete="CASCADE"), primary_key=True
+    )
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class ProviderHit(Base):

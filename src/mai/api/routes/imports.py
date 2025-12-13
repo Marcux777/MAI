@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import re
+import shutil
 from pathlib import Path
 from typing import List
+from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mai.api.dependencies import get_db  # ensures DB ready
 from mai.core.config import get_settings
 from mai.core.logging import logger
-from mai.ingest.pipeline import build_providers, ingest_paths
+from mai.db import models
+from mai.ingest.pipeline import SUPPORTED_EXTENSIONS, build_providers, ingest_file, ingest_paths
 from mai.ingest.service import start_watcher, stop_watcher
-from mai.schemas.imports import ImportRequest, ImportResponse, WatchRequest, WatchResponse
+from mai.schemas.imports import ImportRequest, ImportResponse, UploadResponse, WatchRequest, WatchResponse
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -26,6 +32,15 @@ def _resolve_paths(payload_paths, settings_paths) -> List[Path]:
             raise HTTPException(status_code=400, detail=f"Caminho inexistente: {path}")
         resolved.append(path)
     return resolved
+
+
+def _sanitize_filename(filename: str | None) -> str:
+    name = Path(filename or "").name.strip()
+    if not name:
+        return "upload.bin"
+    name = name.replace("\x00", "")
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    return name[:180] if name else "upload.bin"
 
 
 @router.post("/scan", response_model=ImportResponse, status_code=202)
@@ -50,3 +65,59 @@ def start_watch(payload: WatchRequest) -> WatchResponse:
 def stop_watch() -> WatchResponse:
     stopped = stop_watcher()
     return WatchResponse(status="stopped" if stopped else "idle", watching=False, paths=[])
+
+
+@router.post("/upload", response_model=UploadResponse, status_code=201)
+def upload(file: UploadFile = File(...), db: Session = Depends(get_db)) -> UploadResponse:
+    filename = _sanitize_filename(file.filename)
+    suffix = Path(filename).suffix.lower()
+    if not suffix:
+        raise HTTPException(status_code=400, detail="Arquivo sem extensão")
+    if suffix not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Formato não suportado: {suffix}")
+
+    settings = get_settings()
+    upload_dir = settings.upload_dir.expanduser()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / f"{uuid4().hex}_{filename}"
+
+    try:
+        try:
+            with dest.open("wb") as out:
+                shutil.copyfileobj(file.file, out)
+        except Exception:  # pragma: no cover - depende de I/O
+            logger.exception("Falha ao salvar upload: %s", dest)
+            try:
+                dest.unlink(missing_ok=True)
+            except Exception:
+                logger.warning("Falha ao limpar upload parcial: %s", dest)
+            raise HTTPException(status_code=500, detail="Falha ao salvar upload")
+    finally:
+        try:
+            file.file.close()
+        except Exception:  # pragma: no cover - best-effort close
+            pass
+
+    providers = build_providers(settings.google_books_key)
+    try:
+        ingest_file(db, dest, providers)
+        db.commit()
+    except Exception:  # pragma: no cover - defensive
+        db.rollback()
+        logger.exception("Falha ao ingerir upload: %s", dest)
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Falha ao remover upload após erro: %s", dest)
+        raise HTTPException(status_code=500, detail="Falha ao ingerir upload")
+
+    file_record = db.scalar(select(models.File).where(models.File.path == str(dest)))
+    if not file_record:
+        raise HTTPException(status_code=500, detail="Falha ao localizar upload após ingestão")
+
+    return UploadResponse(
+        status="ingested",
+        file_id=file_record.id,
+        edition_id=file_record.edition_id,
+        path=file_record.path,
+    )

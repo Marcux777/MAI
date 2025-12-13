@@ -6,7 +6,9 @@ from typing import List, Optional
 
 import httpx
 
-from sqlalchemy import or_, select
+from sqlalchemy import column, delete, func, or_, select, table, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import selectinload
 
 from mai.db import models
 from mai.db.session import session_scope
@@ -74,6 +76,14 @@ class HistoryRow:
     created_at: Optional[str]
 
 
+@dataclass
+class CollectionRow:
+    id: int
+    name: str
+    parent_id: int | None
+    item_count: int
+
+
 class BackendClient:
     """Cliente HTTP simples para reutilizar os endpoints FastAPI no app Qt."""
 
@@ -126,23 +136,46 @@ class BackendClient:
 
 
 class LibraryService:
-    def list_books(self, query: str = "", limit: int = 500) -> List[BookRow]:
+    _search_table = table("search", column("rowid"))
+
+    def list_books(
+        self,
+        query: str = "",
+        limit: int = 500,
+        collection_id: int | None = None,
+        unfiled_only: bool = False,
+    ) -> List[BookRow]:
         with session_scope() as session:
             stmt = select(models.Edition).join(models.Work)
-            if query:
-                like = f"%{query}%"
-                stmt = stmt.where(
-                    or_(
-                        models.Edition.title.ilike(like),
-                        models.Work.title.ilike(like),
-                        models.Edition.subtitle.ilike(like),
-                    )
-                )
-            stmt = stmt.limit(limit)
-            editions = session.scalars(stmt).unique().all()
+            params: dict[str, object] = {}
 
+            if collection_id is not None:
+                stmt = stmt.join(models.CollectionItem).where(
+                    models.CollectionItem.collection_id == collection_id
+                )
+            elif unfiled_only:
+                stmt = stmt.outerjoin(
+                    models.CollectionItem, models.CollectionItem.edition_id == models.Edition.id
+                ).where(models.CollectionItem.edition_id.is_(None))
+
+            if query:
+                params["fts_query"] = query
+                stmt = stmt.join(self._search_table, self._search_table.c.rowid == models.Edition.id)
+                stmt = stmt.where(text("search MATCH :fts_query"))
+
+            stmt = (
+                stmt.order_by(models.Edition.created_at.desc())
+                .limit(limit)
+                .options(
+                    selectinload(models.Edition.work).selectinload(models.Work.authors),
+                    selectinload(models.Edition.tags),
+                    selectinload(models.Edition.files),
+                )
+            )
+
+            editions = session.execute(stmt, params).scalars().unique().all()
             if not editions:
-                return self._mock_books()
+                return []
 
             rows: List[BookRow] = []
             for edition in editions:
@@ -165,29 +198,20 @@ class LibraryService:
                 )
             return rows
 
-    def _mock_books(self) -> List[BookRow]:
-        sample = []
-        for idx in range(1, 21):
-            sample.append(
-                BookRow(
-                    edition_id=idx,
-                    title=f"Livro demonstrativo {idx}",
-                    authors="Ana Becker" if idx % 2 == 0 else "Joana Lima",
-                    year=2010 + idx,
-                    series=None,
-                    language="pt",
-                    tags="demo,offline",
-                    fmt="EPUB" if idx % 2 == 0 else "PDF",
-                    added_at=None,
-                    file_path=None,
-                )
-            )
-        return sample
-
     def get_detail(self, edition_id: int) -> EditionDetail | None:
         with session_scope() as session:
-            edition = session.get(models.Edition, edition_id)
-            if not edition:
+            stmt = (
+                select(models.Edition)
+                .where(models.Edition.id == edition_id)
+                .options(
+                    selectinload(models.Edition.work).selectinload(models.Work.authors),
+                    selectinload(models.Edition.identifiers),
+                    selectinload(models.Edition.files),
+                    selectinload(models.Edition.tags),
+                )
+            )
+            edition = session.execute(stmt).scalar_one_or_none()
+            if edition is None:
                 return None
             work = edition.work
             authors = [a.name for a in (work.authors if work else [])]
@@ -273,3 +297,92 @@ class LibraryService:
 
             session.flush()
             upsert_for_edition(session, edition.id)
+
+
+class CollectionService:
+    def list_collections(self) -> List[CollectionRow]:
+        with session_scope() as session:
+            counts = dict(
+                session.execute(
+                    select(
+                        models.CollectionItem.collection_id,
+                        func.count(models.CollectionItem.edition_id),
+                    ).group_by(models.CollectionItem.collection_id)
+                ).all()
+            )
+            collections = session.scalars(select(models.Collection).order_by(models.Collection.name.asc())).all()
+            return [
+                CollectionRow(
+                    id=c.id,
+                    name=c.name,
+                    parent_id=c.parent_id,
+                    item_count=int(counts.get(c.id, 0)),
+                )
+                for c in collections
+            ]
+
+    def total_editions(self) -> int:
+        with session_scope() as session:
+            return int(session.scalar(select(func.count(models.Edition.id))) or 0)
+
+    def unfiled_count(self) -> int:
+        with session_scope() as session:
+            stmt = (
+                select(func.count(models.Edition.id))
+                .outerjoin(models.CollectionItem, models.CollectionItem.edition_id == models.Edition.id)
+                .where(models.CollectionItem.edition_id.is_(None))
+            )
+            return int(session.scalar(stmt) or 0)
+
+    def create_collection(self, name: str, parent_id: int | None = None) -> int:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Nome da coleção é obrigatório")
+        with session_scope() as session:
+            collection = models.Collection(name=name, parent_id=parent_id)
+            session.add(collection)
+            session.flush()
+            return int(collection.id)
+
+    def rename_collection(self, collection_id: int, name: str) -> None:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Nome da coleção é obrigatório")
+        with session_scope() as session:
+            collection = session.get(models.Collection, collection_id)
+            if not collection:
+                raise LookupError("Coleção não encontrada")
+            collection.name = name
+            session.flush()
+
+    def delete_collection(self, collection_id: int) -> None:
+        with session_scope() as session:
+            collection = session.get(models.Collection, collection_id)
+            if not collection:
+                return
+            session.delete(collection)
+            session.flush()
+
+    def add_editions(self, collection_id: int, edition_ids: List[int]) -> int:
+        values = [{"collection_id": collection_id, "edition_id": eid} for eid in edition_ids]
+        if not values:
+            return 0
+        with session_scope() as session:
+            stmt = sqlite_insert(models.CollectionItem).values(values)
+            stmt = stmt.on_conflict_do_nothing(index_elements=["collection_id", "edition_id"])
+            result = session.execute(stmt)
+            session.flush()
+            return int(result.rowcount or 0)
+
+    def remove_editions(self, collection_id: int, edition_ids: List[int]) -> int:
+        if not edition_ids:
+            return 0
+        with session_scope() as session:
+            result = session.execute(
+                delete(models.CollectionItem).where(
+                    models.CollectionItem.collection_id == collection_id,
+                    models.CollectionItem.edition_id.in_(edition_ids),
+                )
+            )
+            session.flush()
+            return int(result.rowcount or 0)

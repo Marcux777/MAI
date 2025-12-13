@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     db_path: Path = Path("var/data/mai.db")
     schema_path: Path = Path("db/schema.sql")
+    upload_dir: Path = Path("var/uploads")
 
     watch_paths: List[Path] = []
     google_books_key: str | None = None

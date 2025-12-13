@@ -1,0 +1,33 @@
+name: mai
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["mai-api"]
+    ports:
+      - "8000:8000"
+    environment:
+      MAI_DB_PATH: /app/var/data/mai.db
+      MAI_API_HOST: 0.0.0.0
+      MAI_API_PORT: 8000
+    volumes:
+      - ./var/data:/app/var/data
+
+  qt:
+    profiles: ["qt"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["mai-qt"]
+    depends_on:
+      - api
+    environment:
+      MAI_DB_PATH: /app/var/data/mai.db
+      MAI_API_URL: http://api:8000
+      DISPLAY: ${DISPLAY}
+      QT_QPA_PLATFORM: xcb
+    volumes:
+      - ./var/data:/app/var/data
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw

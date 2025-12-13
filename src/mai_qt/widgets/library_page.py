@@ -21,6 +21,8 @@ class LibraryPage(QWidget):
         super().__init__(parent)
         self.service = service
         self.model = LibraryTableModel()
+        self.collection_id: int | None = None
+        self.unfiled_only: bool = False
         self._build_ui()
         self.refresh()
 
@@ -35,12 +37,12 @@ class LibraryPage(QWidget):
         self.refresh_btn = QPushButton("Atualizar")
         self.refresh_btn.clicked.connect(self.refresh)  # type: ignore[attr-defined]
 
-        info = QLabel("Resultados carregados da base local")
-        info.setObjectName("infoLabel")
+        self.info = QLabel("")
+        self.info.setObjectName("infoLabel")
 
         header.addWidget(self.search_input)
         header.addWidget(self.refresh_btn)
-        header.addWidget(info)
+        header.addWidget(self.info)
         layout.addLayout(header)
 
         self.table = QTableView()
@@ -54,7 +56,26 @@ class LibraryPage(QWidget):
 
         layout.addWidget(self.table)
 
+    def set_collection_filter(self, collection_id: int | None, unfiled_only: bool = False) -> None:
+        self.collection_id = collection_id
+        self.unfiled_only = unfiled_only
+        self.refresh()
+
     def refresh(self) -> None:
         query = self.search_input.text().strip()
-        rows = self.service.list_books(query=query)
+        rows = self.service.list_books(
+            query=query,
+            collection_id=self.collection_id,
+            unfiled_only=self.unfiled_only,
+        )
         self.model.set_rows(rows)
+        self.info.setText(f"{len(rows)} itens")
+
+    def selected_edition_ids(self) -> list[int]:
+        selection = self.table.selectionModel().selectedRows()
+        ids: list[int] = []
+        for index in selection:
+            row = self.model.book_at(index.row())
+            if row:
+                ids.append(int(row.edition_id))
+        return ids

@@ -4,18 +4,16 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDockWidget,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QStackedWidget,
-    QWidget,
     QMessageBox,
+    QToolBar,
 )
 
-from ..services import LibraryService, EditionDetail, BackendClient
+from ..services import BackendClient, CollectionService, EditionDetail, LibraryService
 from ..widgets.library_page import LibraryPage
 from ..widgets.detail_panel import DetailPanel
+from ..widgets.collection_tree import CollectionTree
 from ..widgets.organizer_panel import OrganizerPanel
 from ..widgets.review_page import ReviewPage
 from ..widgets.import_panel import ImportPanel
@@ -28,6 +26,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MAI — Biblioteca Local")
         self.resize(1400, 900)
         self.library_service = LibraryService()
+        self.collection_service = CollectionService()
         self.backend = BackendClient()
         self.current_detail: EditionDetail | None = None
         self._build_ui()
@@ -56,30 +55,16 @@ class MainWindow(QMainWindow):
         ]:
             self.stack.addWidget(page)
 
-        self._build_sidebar()
+        self._build_collections_dock()
         self._build_detail_dock()
-        self._build_menu()
+        self._build_toolbar()
 
-    def _build_sidebar(self) -> None:
-        dock = QDockWidget("Módulos", self)
+    def _build_collections_dock(self) -> None:
+        dock = QDockWidget("Biblioteca", self)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea)
-        menu = QListWidget()
-        items = [
-            ("Biblioteca", self.library_page),
-            ("Revisão", self.review_page),
-            ("Organizer", self.organizer_page),
-            ("Importar", self.import_page),
-            ("Tarefas", self.tasks_page),
-            ("Métricas", self.metrics_page),
-            ("Config", self.settings_page),
-        ]
-        for title, page in items:
-            item = QListWidgetItem(title)
-            item.setData(Qt.UserRole, page)
-            menu.addItem(item)
-        menu.currentRowChanged.connect(lambda idx: self.stack.setCurrentIndex(idx))  # type: ignore[attr-defined]
-        menu.setCurrentRow(0)
-        dock.setWidget(menu)
+        self.collection_tree = CollectionTree(self.collection_service)
+        self.collection_tree.filter_changed.connect(self._on_collection_filter_changed)  # type: ignore[attr-defined]
+        dock.setWidget(self.collection_tree)
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
 
     def _build_detail_dock(self) -> None:
@@ -93,11 +78,52 @@ class MainWindow(QMainWindow):
 
         table = self.library_page.table
         table.selectionModel().selectionChanged.connect(self._update_detail)  # type: ignore[attr-defined]
+        table.selectionModel().selectionChanged.connect(self._update_collection_actions)  # type: ignore[attr-defined]
 
-    def _build_menu(self) -> None:
+    def _build_toolbar(self) -> None:
+        toolbar = QToolBar("MAI", self)
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+
+        def nav(title: str, page) -> QAction:
+            action = QAction(title, self)
+            action.triggered.connect(lambda: self.stack.setCurrentWidget(page))  # type: ignore[attr-defined]
+            toolbar.addAction(action)
+            return action
+
+        nav("Biblioteca", self.library_page)
+        nav("Revisão", self.review_page)
+        nav("Organizer", self.organizer_page)
+        nav("Importar", self.import_page)
+        nav("Tarefas", self.tasks_page)
+        nav("Métricas", self.metrics_page)
+        nav("Config", self.settings_page)
+
+        toolbar.addSeparator()
+
+        self.action_new_collection = QAction("Nova coleção", self)
+        self.action_new_collection.triggered.connect(lambda: self.collection_tree.prompt_new_collection())  # type: ignore[attr-defined]
+        toolbar.addAction(self.action_new_collection)
+
+        self.action_add_to_collection = QAction("Adicionar selecionados", self)
+        self.action_add_to_collection.triggered.connect(self._add_selected_to_collection)  # type: ignore[attr-defined]
+        toolbar.addAction(self.action_add_to_collection)
+
+        self.action_remove_from_collection = QAction("Remover selecionados", self)
+        self.action_remove_from_collection.triggered.connect(self._remove_selected_from_collection)  # type: ignore[attr-defined]
+        toolbar.addAction(self.action_remove_from_collection)
+
+        toolbar.addSeparator()
+
         refresh_action = QAction("Recarregar", self)
-        refresh_action.triggered.connect(self.library_page.refresh)  # type: ignore[attr-defined]
-        self.menuBar().addAction(refresh_action)
+        refresh_action.triggered.connect(self._refresh_all)  # type: ignore[attr-defined]
+        toolbar.addAction(refresh_action)
+
+        self._update_collection_actions()
+
+    def _refresh_all(self) -> None:
+        self.collection_tree.refresh()
+        self.library_page.refresh()
 
     def _update_detail(self) -> None:
         selection = self.library_page.table.selectionModel().selectedRows()
@@ -148,3 +174,50 @@ class MainWindow(QMainWindow):
         self.library_page.refresh()
         detail = self.library_service.get_detail(edition_id)
         self.detail_panel.set_detail(detail)
+
+    def _on_collection_filter_changed(self, collection_id: int | None, unfiled_only: bool) -> None:
+        self.library_page.set_collection_filter(collection_id=collection_id, unfiled_only=unfiled_only)
+        self._update_collection_actions()
+
+    def _update_collection_actions(self) -> None:
+        if not hasattr(self, "action_add_to_collection"):
+            return
+        collection_id, unfiled = self.collection_tree.current_filter()
+        has_collection_target = collection_id is not None and not unfiled
+        has_selection = bool(self.library_page.selected_edition_ids())
+        self.action_add_to_collection.setEnabled(has_collection_target and has_selection)
+        self.action_remove_from_collection.setEnabled(has_collection_target and has_selection)
+
+    def _add_selected_to_collection(self) -> None:
+        collection_id, unfiled = self.collection_tree.current_filter()
+        if collection_id is None or unfiled:
+            QMessageBox.information(self, "Coleções", "Selecione uma coleção para adicionar itens.")
+            return
+        edition_ids = self.library_page.selected_edition_ids()
+        if not edition_ids:
+            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na tabela.")
+            return
+        try:
+            self.collection_service.add_editions(collection_id, edition_ids)
+        except Exception as exc:
+            QMessageBox.critical(self, "Coleções", str(exc))
+            return
+        self.collection_tree.refresh(select_collection_id=collection_id)
+        self.library_page.refresh()
+
+    def _remove_selected_from_collection(self) -> None:
+        collection_id, unfiled = self.collection_tree.current_filter()
+        if collection_id is None or unfiled:
+            QMessageBox.information(self, "Coleções", "Selecione uma coleção para remover itens.")
+            return
+        edition_ids = self.library_page.selected_edition_ids()
+        if not edition_ids:
+            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na tabela.")
+            return
+        try:
+            self.collection_service.remove_editions(collection_id, edition_ids)
+        except Exception as exc:
+            QMessageBox.critical(self, "Coleções", str(exc))
+            return
+        self.collection_tree.refresh(select_collection_id=collection_id)
+        self.library_page.refresh()

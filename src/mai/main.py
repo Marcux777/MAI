@@ -21,7 +21,7 @@ from mai.api.routes import (
     review,
 )
 from mai.core.config import get_settings
-from mai.core.logging import configure_logging
+from mai.core.logging import configure_logging, logger
 from mai.db.init import apply_schema
 from mai.ingest.service import start_watcher, stop_watcher, watcher_disabled
 
@@ -48,7 +48,6 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(books.router)
     app.include_router(imports.router)
-    static_dir = Path(__file__).resolve().parents[2] / "static"
     app.include_router(organize.router)
     app.include_router(dashboard.router)
     app.include_router(auth.router)
@@ -57,7 +56,12 @@ def create_app() -> FastAPI:
     app.include_router(files.router)
     app.include_router(review.router)
     app.include_router(opds.router)
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    static_dir = Path(__file__).resolve().parents[2] / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    else:
+        logger.warning("Diretório de static não encontrado; /static desabilitado: %s", static_dir)
 
     ui_dist = Path(__file__).resolve().parents[2] / "ui" / "dist"
     if ui_dist.exists():
@@ -68,7 +72,6 @@ def create_app() -> FastAPI:
 
 def run() -> None:
     settings = get_settings()
-    app = create_app()
     uvicorn.run(app, host=settings.api_host, port=settings.api_port, reload=settings.debug)
 
 

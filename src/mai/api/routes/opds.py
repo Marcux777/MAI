@@ -99,7 +99,7 @@ def opds_catalog(
                 type="image/jpeg",
             )
         for file in edition.files:
-            file_url = request.url_for("opds_file", file_id=file.id)
+            file_url = str(request.url_for("opds_file", file_id=file.id))
             link_attrs = {
                 "rel": "http://opds-spec.org/acquisition",
                 "href": file_url,

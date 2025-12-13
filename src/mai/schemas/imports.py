@@ -27,3 +27,10 @@ class WatchResponse(BaseModel):
     status: str
     watching: bool
     paths: List[str]
+
+
+class UploadResponse(BaseModel):
+    status: str
+    file_id: int
+    edition_id: int | None
+    path: str

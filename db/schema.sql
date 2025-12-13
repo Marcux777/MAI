@@ -101,6 +101,27 @@ CREATE TABLE IF NOT EXISTS book_tag (
   PRIMARY KEY (edition_id, tag_id)
 );
 
+-- Coleções/pastas (hierárquicas, estilo Zotero)
+CREATE TABLE IF NOT EXISTS collection (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL,
+  parent_id  INTEGER REFERENCES collection(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_collection_parent ON collection(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_sibling_name ON collection(parent_id, name);
+
+CREATE TABLE IF NOT EXISTS collection_item (
+  collection_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+  edition_id    INTEGER NOT NULL REFERENCES edition(id) ON DELETE CASCADE,
+  added_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (collection_id, edition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_collection_item_edition ON collection_item(edition_id);
+
 -- Tasks (assíncronas, filas, etc.)
 CREATE TABLE IF NOT EXISTS task (
   id          INTEGER PRIMARY KEY,
