@@ -2,6 +2,9 @@
 
 COMPOSE ?= docker compose
 
+HOST_HOME ?= $(shell sh -c 'if [ -n "$$SUDO_USER" ]; then eval echo "~$$SUDO_USER"; else echo "$$HOME"; fi')
+COMPOSE_ENV = HOME="$(HOST_HOME)"
+
 .PHONY: help up up-d down logs ps build qt qt-d
 
 help:
@@ -18,27 +21,27 @@ help:
 	@printf "%s\n" "Dica: sobrescreva COMPOSE se preciso (ex.: COMPOSE=docker-compose)."
 
 up:
-	$(COMPOSE) up --build
+	$(COMPOSE_ENV) $(COMPOSE) up --build
 
 up-d:
-	$(COMPOSE) up --build -d
+	$(COMPOSE_ENV) $(COMPOSE) up --build -d
 
 qt:
 	@if command -v xhost >/dev/null 2>&1; then xhost +local: >/dev/null 2>&1 || true; fi
-	$(COMPOSE) --profile qt up --build
+	$(COMPOSE_ENV) $(COMPOSE) --profile qt up --build
 
 qt-d:
 	@if command -v xhost >/dev/null 2>&1; then xhost +local: >/dev/null 2>&1 || true; fi
-	$(COMPOSE) --profile qt up --build -d
+	$(COMPOSE_ENV) $(COMPOSE) --profile qt up --build -d
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE_ENV) $(COMPOSE) build
 
 logs:
-	$(COMPOSE) logs -f --tail=200
+	$(COMPOSE_ENV) $(COMPOSE) logs -f --tail=200
 
 ps:
-	$(COMPOSE) ps -a
+	$(COMPOSE_ENV) $(COMPOSE) ps -a
 
 down:
-	$(COMPOSE) down
+	$(COMPOSE_ENV) $(COMPOSE) down
