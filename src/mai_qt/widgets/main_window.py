@@ -30,8 +30,9 @@ _SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
 
 
 class _DropOverlay(QWidget):
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__(window)
+        self._window = window
         self.setVisible(False)
         self.setAcceptDrops(True)
         self._label = QLabel("Solte o arquivo para importar")
@@ -54,6 +55,25 @@ class _DropOverlay(QWidget):
         else:
             self._label.setText(f"Solte {count} arquivos para importar")
 
+    def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._window._accept_drag_event(event):
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._window._accept_drag_event(event):
+            return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._window._handle_drop_event(event):
+            return
+        event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # pragma: no cover - GUI
+        self._window._hide_drop_overlay()
+        event.accept()
+
 
 class _GlobalFileDropFilter(QObject):
     def __init__(self, window: "MainWindow") -> None:
@@ -73,6 +93,9 @@ class _GlobalFileDropFilter(QObject):
         if target is None and isinstance(obj, QWidget):
             target = obj
         if target is None or target.window() is not self._window:
+            return False
+
+        if hasattr(self._window, "_drop_overlay") and target is self._window._drop_overlay:
             return False
 
         if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
