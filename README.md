@@ -83,10 +83,21 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 
 ## Executar com Docker (1 comando)
 
-- **API (FastAPI)**: `docker compose up --build`  
+- **API (FastAPI)**: `make up` (ou `docker compose up --build`)  
   Acesse `http://localhost:8000/docs`.
-- **App desktop Qt (Linux + X11)**: `xhost +local: && docker compose --profile qt up --build`  
-  O banco persiste em `./var/data` (volume montado). Para Wayland/Windows/macOS, rode o Qt nativo por enquanto.
+- **App desktop Qt (Linux + X11)**: `make qt` (ou `xhost +local: && docker compose --profile qt up --build`)  
+  O banco persiste em `./var/data` e uploads em `./var/uploads` (volumes montados). Para Wayland/Windows/macOS, rode o Qt nativo por enquanto.
+  No modo Docker/X11, você pode **arrastar e soltar arquivos** na janela (o compose monta `${HOME}` em modo read-only para o container do Qt).
+
+## Contribuindo
+
+Veja `CONTRIBUTING.md` para fluxo de branches/PRs, revisão, CODEOWNERS e configuração de proteção da `main`.
+
+## Documentação
+
+- Arquitetura: `docs/ARCHITECTURE.md`
+- Processo (issues/PRs/DoD): `docs/PROCESS.md`
+- Roadmap: `docs/ROADMAP.md`
 
 ---
 Para detalhes de implementação veja `db/schema.sql` (DDL completo) e `scripts/ingest_pipeline.py` (esqueleto do scanner + provedores Open Library/Google Books).

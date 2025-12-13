@@ -24,6 +24,7 @@ Thumbs.db
 tmp/**
 tmpdb/**
 var/data/**
+var/uploads/**
 *.db
 *.sqlite
 *.sqlite3
@@ -45,3 +46,4 @@ sample_data/**
 !tmp/.gitkeep
 !tmpdb/.gitkeep
 !var/data/.gitkeep
+!var/uploads/.gitkeep

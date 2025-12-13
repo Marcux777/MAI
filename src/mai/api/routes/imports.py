@@ -100,7 +100,8 @@ def upload(file: UploadFile = File(...), db: Session = Depends(get_db)) -> Uploa
 
     providers = build_providers(settings.google_books_key)
     try:
-        ingest_file(db, dest, providers)
+        resolved_dest = dest.resolve()
+        ingest_file(db, resolved_dest, providers)
         db.commit()
     except Exception:  # pragma: no cover - defensive
         db.rollback()
@@ -111,7 +112,7 @@ def upload(file: UploadFile = File(...), db: Session = Depends(get_db)) -> Uploa
             logger.warning("Falha ao remover upload após erro: %s", dest)
         raise HTTPException(status_code=500, detail="Falha ao ingerir upload")
 
-    file_record = db.scalar(select(models.File).where(models.File.path == str(dest)))
+    file_record = db.scalar(select(models.File).where(models.File.path == str(resolved_dest)))
     if not file_record:
         raise HTTPException(status_code=500, detail="Falha ao localizar upload após ingestão")
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List
 
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 from PySide6.QtWidgets import (
+    QFileDialog,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -16,10 +19,49 @@ from PySide6.QtWidgets import (
 from ..services import BackendClient
 
 
+_SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
+
+
+class _UploadSignals(QObject):
+    log = Signal(str)
+    ingested = Signal(int)  # edition_id
+    finished = Signal()
+
+
+class _UploadBatchTask(QRunnable):
+    def __init__(self, backend: BackendClient, paths: List[str]) -> None:
+        super().__init__()
+        self.backend = BackendClient(base_url=backend.base_url, timeout=backend.timeout)
+        self.paths = paths
+        self.signals = _UploadSignals()
+
+    @Slot()
+    def run(self) -> None:  # pragma: no cover - runs in Qt threadpool
+        for path in self.paths:
+            try:
+                result = self.backend.import_upload(path)
+            except Exception as exc:
+                self.signals.log.emit(f"Falha no upload ({path}): {exc}")
+                continue
+            self.signals.log.emit(f"Upload concluído: {result}")
+            edition_id = result.get("edition_id")
+            if isinstance(edition_id, int):
+                self.signals.ingested.emit(edition_id)
+        self.signals.finished.emit()
+
+
 class ImportPanel(QWidget):
+    ingested = Signal(int)  # edition_id
+
     def __init__(self, backend: BackendClient, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.backend = backend
+        self.setAcceptDrops(True)
+        self._pool = QThreadPool.globalInstance()
+        self._upload_running = False
+        self.file_path = QLineEdit()
+        self.file_path.setReadOnly(True)
+        self.file_path.setPlaceholderText("Selecione um arquivo (PDF/EPUB/MOBI/AZW...)")
         self.paths_input = QLineEdit()
         self.paths_input.setPlaceholderText("Caminhos separados por ponto e vírgula ou deixe vazio para usar os paths configurados")
         self.log = QTextEdit()
@@ -28,6 +70,18 @@ class ImportPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Upload de arquivo (ingestão imediata)"))
+
+        upload_row = QHBoxLayout()
+        upload_row.addWidget(self.file_path, 1)
+        self.select_btn = QPushButton("Selecionar…")
+        self.select_btn.clicked.connect(self.select_file)  # type: ignore[attr-defined]
+        self.upload_btn = QPushButton("Upload")
+        self.upload_btn.clicked.connect(self.upload_file)  # type: ignore[attr-defined]
+        upload_row.addWidget(self.select_btn)
+        upload_row.addWidget(self.upload_btn)
+        layout.addLayout(upload_row)
+
         layout.addWidget(QLabel("Caminhos para import/watcher"))
         layout.addWidget(self.paths_input)
 
@@ -47,11 +101,81 @@ class ImportPanel(QWidget):
         layout.addWidget(QLabel("Log"))
         layout.addWidget(self.log)
 
+    def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+            if any(Path(p).suffix.lower() in _SUPPORTED_EXTENSIONS for p in paths):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:  # pragma: no cover - GUI
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        self.upload_files(paths)
+        event.acceptProposedAction()
+
     def _parse_paths(self) -> List[str]:
         text = self.paths_input.text().strip()
         if not text:
             return []
         return [part.strip() for part in text.split(";") if part.strip()]
+
+    def select_file(self) -> None:
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar arquivo",
+            str(Path.home()),
+            "Ebooks (*.pdf *.epub *.mobi *.azw *.azw3);;Todos (*.*)",
+        )
+        if not selected:
+            return
+        self.file_path.setText(selected)
+
+    def upload_files(self, paths: List[str]) -> None:
+        candidates: list[str] = []
+        for raw in paths:
+            path = (raw or "").strip()
+            if not path:
+                continue
+            suffix = Path(path).suffix.lower()
+            if suffix not in _SUPPORTED_EXTENSIONS:
+                continue
+            candidates.append(path)
+
+        if not candidates:
+            QMessageBox.information(
+                self,
+                "Upload",
+                "Arraste ou selecione um arquivo suportado (PDF/EPUB/MOBI/AZW...).",
+            )
+            return
+
+        if self._upload_running:
+            QMessageBox.information(self, "Upload", "Já existe um upload em andamento.")
+            return
+
+        self._upload_running = True
+        self.select_btn.setEnabled(False)
+        self.upload_btn.setEnabled(False)
+        self.log.append(f"Iniciando upload: {', '.join(Path(p).name for p in candidates)}")
+
+        task = _UploadBatchTask(self.backend, candidates)
+        task.signals.log.connect(self.log.append)  # type: ignore[attr-defined]
+        task.signals.ingested.connect(self.ingested.emit)  # type: ignore[attr-defined]
+        task.signals.finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
+        self._pool.start(task)
+
+    def _on_upload_finished(self) -> None:
+        self._upload_running = False
+        self.select_btn.setEnabled(True)
+        self.upload_btn.setEnabled(True)
+
+    def upload_file(self) -> None:
+        path = self.file_path.text().strip()
+        if not path:
+            QMessageBox.information(self, "Upload", "Selecione um arquivo antes de enviar.")
+            return
+        self.upload_files([path])
 
     def run_scan(self) -> None:
         try:

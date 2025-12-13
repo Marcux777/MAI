@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
@@ -25,6 +27,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MAI — Biblioteca Local")
         self.resize(1400, 900)
+        self.setAcceptDrops(True)
         self.library_service = LibraryService()
         self.collection_service = CollectionService()
         self.backend = BackendClient()
@@ -41,6 +44,7 @@ class MainWindow(QMainWindow):
         self.review_page = ReviewPage(self.backend)
         self.organizer_page = OrganizerPanel(self.backend)
         self.import_page = ImportPanel(self.backend)
+        self.import_page.ingested.connect(self._on_ingest_completed)  # type: ignore[attr-defined]
         self.tasks_page = _simple_page("Tarefas", "Monitoramento das filas de processamento.")
         self.metrics_page = _simple_page("Métricas", "Indicadores-chave do pipeline.")
         self.settings_page = _simple_page("Configurações", "Preferências locais e provedores.")
@@ -124,6 +128,26 @@ class MainWindow(QMainWindow):
     def _refresh_all(self) -> None:
         self.collection_tree.refresh()
         self.library_page.refresh()
+
+    def _on_ingest_completed(self, edition_id: int) -> None:
+        self._refresh_all()
+
+    def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and Path(url.toLocalFile()).is_file():
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:  # pragma: no cover - GUI
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        if not paths:
+            event.ignore()
+            return
+        self.stack.setCurrentWidget(self.import_page)
+        self.import_page.upload_files(paths)
+        event.acceptProposedAction()
 
     def _update_detail(self) -> None:
         selection = self.library_page.table.selectionModel().selectedRows()

@@ -14,6 +14,7 @@ services:
       MAI_API_PORT: 8000
     volumes:
       - ./var/data:/app/var/data
+      - ./var/uploads:/app/var/uploads
 
   qt:
     profiles: ["qt"]
@@ -30,4 +31,6 @@ services:
       QT_QPA_PLATFORM: xcb
     volumes:
       - ./var/data:/app/var/data
+      - ./var/uploads:/app/var/uploads
+      - ${HOME}:${HOME}:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import mimetypes
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
 
 import httpx
@@ -93,7 +95,8 @@ class BackendClient:
 
     def _request(self, method: str, path: str, **kwargs):
         url = f"{self.base_url}{path}"
-        resp = httpx.request(method, url, timeout=self.timeout, **kwargs)
+        timeout = kwargs.pop("timeout", self.timeout)
+        resp = httpx.request(method, url, timeout=timeout, **kwargs)
         resp.raise_for_status()
         if resp.headers.get("content-type", "").startswith("application/json"):
             return resp.json()
@@ -119,6 +122,22 @@ class BackendClient:
 
     def import_scan(self, paths: List[str]) -> dict:
         return self._request("POST", "/import/scan", json={"paths": paths or None})
+
+    def import_upload(self, path: str | Path) -> dict:
+        file_path = Path(path).expanduser()
+        if not file_path.exists() or not file_path.is_file():
+            raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
+        mime, _ = mimetypes.guess_type(file_path.name)
+        handle = file_path.open("rb")
+        try:
+            return self._request(
+                "POST",
+                "/import/upload",
+                files={"file": (file_path.name, handle, mime or "application/octet-stream")},
+                timeout=max(float(self.timeout), 120.0),
+            )
+        finally:
+            handle.close()
 
     def watch_start(self, paths: List[str]) -> dict:
         return self._request("POST", "/import/watch", json={"paths": paths or None})

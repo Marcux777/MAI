@@ -11,6 +11,7 @@ htmlcov
 tmp
 tmpdb
 var/data
+var/uploads
 beta_pack
 sample_data
 
