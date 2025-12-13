@@ -38,8 +38,7 @@ logs:
 	$(COMPOSE) logs -f --tail=200
 
 ps:
-	$(COMPOSE) ps
+	$(COMPOSE) ps -a
 
 down:
 	$(COMPOSE) down
-
