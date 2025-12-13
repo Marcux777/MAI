@@ -8,7 +8,6 @@ from mai.core.config import get_settings
 from mai.db import models
 from mai.db.indexer import upsert_for_edition
 from mai.ingest.pipeline import (
-    ACCEPT_THRESHOLD,
     apply_candidate_to_edition,
     build_providers,
     build_local_metadata_from_edition,
@@ -42,7 +41,7 @@ def fetch(body: ProviderFetchRequest, db: Session = Depends(get_db)) -> Provider
     scored = score_candidates(local, hits)
     candidate, top_score, ranked = reconcile(scored)
 
-    auto_applied = bool(body.auto_apply and candidate and top_score >= ACCEPT_THRESHOLD)
+    auto_applied = bool(body.auto_apply and candidate)
     if auto_applied and candidate:
         apply_candidate_to_edition(db, edition, candidate)
         upsert_provider_hit(db, edition.id, candidate, score=top_score or 1.0)

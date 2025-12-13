@@ -242,7 +242,7 @@ def search_providers(local: LocalMetadata, providers: Iterable[Provider]) -> Lis
 
 def score_candidates(local: LocalMetadata, hits: List[Tuple[str, Candidate]]) -> List[dict]:
     return [
-        {"stage": stage, "candidate": candidate, "score": score_candidate(local, candidate)}
+        {"stage": stage, "candidate": candidate, **score_candidate(local, candidate)}
         for stage, candidate in hits
     ]
 
@@ -254,26 +254,49 @@ def reconcile(scored_candidates: List[dict]) -> tuple[Optional[Candidate], float
     top_score = ranked[0]["score"]
     if top_score >= ACCEPT_THRESHOLD:
         return ranked[0]["candidate"], top_score, ranked
+    if _should_auto_accept(ranked):
+        return ranked[0]["candidate"], top_score, ranked
     return None, top_score, ranked
 
 
-def score_candidate(local: LocalMetadata, candidate: Candidate) -> float:
+def _should_auto_accept(ranked: list[dict]) -> bool:
+    if not ranked:
+        return False
+    top = ranked[0]
+    title_sim = float(top.get("title_sim") or 0.0)
+    author_sim = float(top.get("author_sim") or 0.0)
+    if title_sim < 0.95 or author_sim < 0.95:
+        return False
+    if len(ranked) < 2:
+        return True
+    try:
+        second = float(ranked[1].get("score") or 0.0)
+    except Exception:
+        return True
+    return (float(top.get("score") or 0.0) - second) >= 0.05
+
+
+def score_candidate(local: LocalMetadata, candidate: Candidate) -> dict:
     score = 0.0
+    title_sim = 0.0
+    author_sim = 0.0
     local_isbn = next((isbn13(i) for i in local.identifiers if isbn13(i)), None)
     remote_isbn = candidate.ids.get("ISBN13")
     if local_isbn and remote_isbn and local_isbn == remote_isbn:
-        return 1.0
+        return {"score": 1.0, "title_sim": 1.0, "author_sim": 1.0}
     if local.title and candidate.title:
-        score += 0.35 * (fuzz.WRatio(normalize(local.title), normalize(candidate.title)) / 100)
+        title_sim = fuzz.WRatio(normalize(local.title), normalize(candidate.title)) / 100
+        score += 0.35 * title_sim
     if local.authors and candidate.authors:
-        score += 0.35 * (fuzz.token_set_ratio(" ".join(local.authors), " ".join(candidate.authors)) / 100)
+        author_sim = fuzz.token_sort_ratio(" ".join(local.authors), " ".join(candidate.authors)) / 100
+        score += 0.35 * author_sim
     if local.year and candidate.year and abs(local.year - candidate.year) <= 1:
         score += 0.1
     if local.language and candidate.language and normalize(local.language) == normalize(candidate.language):
         score += 0.05
     if candidate.publisher:
         score += 0.05
-    return score
+    return {"score": score, "title_sim": title_sim, "author_sim": author_sim}
 
 
 def attach_mime(path: Path) -> str:
