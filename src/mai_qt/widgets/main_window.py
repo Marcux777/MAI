@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QMainWindow,
     QStackedWidget,
     QMessageBox,
     QToolBar,
+    QWidget,
 )
 
 from ..services import BackendClient, CollectionService, EditionDetail, LibraryService
@@ -24,6 +26,34 @@ from ..pages.simple_pages import _simple_page
 _SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
 
 
+class _GlobalFileDropFilter(QObject):
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__(window)
+        self._window = window
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # pragma: no cover - GUI
+        if event.type() not in {
+            QEvent.Type.DragEnter,
+            QEvent.Type.DragMove,
+            QEvent.Type.Drop,
+        }:
+            return False
+
+        if not isinstance(obj, QWidget):
+            return False
+
+        if obj.window() is not self._window:
+            return False
+
+        if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
+            return self._window._accept_drag_event(event)
+
+        if event.type() == QEvent.Type.Drop:
+            return self._window._handle_drop_event(event)
+
+        return False
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -35,6 +65,7 @@ class MainWindow(QMainWindow):
         self.backend = BackendClient()
         self.current_detail: EditionDetail | None = None
         self._build_ui()
+        self._install_global_drop_filter()
 
     def _build_ui(self) -> None:
         self.stack = QStackedWidget()
@@ -47,6 +78,8 @@ class MainWindow(QMainWindow):
         self.organizer_page = OrganizerPanel(self.backend)
         self.import_page = ImportPanel(self.backend)
         self.import_page.ingested.connect(self._on_ingest_completed)  # type: ignore[attr-defined]
+        self.import_page.upload_error.connect(self._on_upload_error)  # type: ignore[attr-defined]
+        self.import_page.upload_finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
         self.tasks_page = _simple_page("Tarefas", "Monitoramento das filas de processamento.")
         self.metrics_page = _simple_page("Métricas", "Indicadores-chave do pipeline.")
         self.settings_page = _simple_page("Configurações", "Preferências locais e provedores.")
@@ -131,6 +164,13 @@ class MainWindow(QMainWindow):
 
         self._update_collection_actions()
 
+    def _install_global_drop_filter(self) -> None:  # pragma: no cover - GUI
+        app = QApplication.instance()
+        if not app:
+            return
+        self._drop_filter = _GlobalFileDropFilter(self)
+        app.installEventFilter(self._drop_filter)
+
     def _refresh_all(self) -> None:
         self.collection_tree.refresh()
         self.library_page.refresh()
@@ -142,34 +182,71 @@ class MainWindow(QMainWindow):
             self.library_page.select_edition(edition_id)
         self.statusBar().showMessage(f"Ingestão concluída (edition_id={edition_id}).", 8000)
 
-    def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if not url.isLocalFile():
-                    continue
-                path = Path(url.toLocalFile())
-                if path.is_file() and path.suffix.lower() in _SUPPORTED_DROP_EXTENSIONS:
-                    event.acceptProposedAction()
-                    return
-        event.ignore()
-
-    def dropEvent(self, event) -> None:  # pragma: no cover - GUI
+    def _drop_paths_from_event(self, event) -> list[str]:  # pragma: no cover - GUI
+        if not event.mimeData().hasUrls():
+            return []
         paths: list[str] = []
         for url in event.mimeData().urls():
             if not url.isLocalFile():
                 continue
-            path = Path(url.toLocalFile())
-            if not path.is_file():
+            local = url.toLocalFile()
+            if not local:
                 continue
-            if path.suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
+            if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
                 continue
-            paths.append(str(path))
+            paths.append(local)
+        return paths
+
+    def _accept_drag_event(self, event) -> bool:  # pragma: no cover - GUI
+        if self._drop_paths_from_event(event):
+            event.acceptProposedAction()
+            return True
+        return False
+
+    def _handle_drop_event(self, event) -> bool:  # pragma: no cover - GUI
+        paths = self._drop_paths_from_event(event)
         if not paths:
+            return False
+
+        existing = [p for p in paths if Path(p).is_file()]
+        missing = [p for p in paths if p not in existing]
+
+        if not existing:
+            self.statusBar().showMessage(
+                "Arquivo não acessível neste ambiente. Se estiver no Docker, coloque em $HOME ou monte o diretório no compose.",
+                12000,
+            )
             event.ignore()
-            return
-        self.statusBar().showMessage(f"Enviando {len(paths)} arquivo(s) para ingestão…", 5000)
-        self.import_page.upload_files(paths)
+            return True
+
+        if missing:
+            self.statusBar().showMessage(
+                f"{len(missing)} arquivo(s) não acessíveis; enviando {len(existing)} arquivo(s)…",
+                8000,
+            )
+
+        self.statusBar().showMessage(f"Enviando {len(existing)} arquivo(s) para ingestão…")
+        self.import_page.upload_files(existing)
         event.acceptProposedAction()
+        return True
+
+    def _on_upload_error(self, message: str) -> None:
+        self.statusBar().showMessage("Falha no upload. Abra a aba Importar para ver detalhes.", 12000)
+
+    def _on_upload_finished(self, ok: int, failed: int) -> None:
+        if ok == 0 and failed == 0:
+            return
+        self.statusBar().showMessage(f"Upload finalizado: {ok} ok, {failed} falha(s).", 12000)
+
+    def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._accept_drag_event(event):
+            return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._handle_drop_event(event):
+            return
+        event.ignore()
 
     def _update_detail(self) -> None:
         selection = self.library_page.table.selectionModel().selectedRows()

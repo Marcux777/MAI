@@ -24,6 +24,7 @@ _SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
 
 class _UploadSignals(QObject):
     log = Signal(str)
+    error = Signal(str)
     ingested = Signal(int)  # edition_id
     finished = Signal()
 
@@ -41,17 +42,22 @@ class _UploadBatchTask(QRunnable):
             try:
                 result = self.backend.import_upload(path)
             except Exception as exc:
-                self.signals.log.emit(f"Falha no upload ({path}): {exc}")
+                self.signals.error.emit(f"Falha no upload ({path}): {exc}")
                 continue
             self.signals.log.emit(f"Upload concluído: {result}")
             edition_id = result.get("edition_id")
             if isinstance(edition_id, int):
                 self.signals.ingested.emit(edition_id)
+            else:
+                self.signals.error.emit(f"Upload concluído, mas sem edition_id: {result}")
         self.signals.finished.emit()
 
 
 class ImportPanel(QWidget):
     ingested = Signal(int)  # edition_id
+    upload_log = Signal(str)
+    upload_error = Signal(str)
+    upload_finished = Signal(int, int)  # ok, failed
 
     def __init__(self, backend: BackendClient, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -59,6 +65,8 @@ class ImportPanel(QWidget):
         self.setAcceptDrops(True)
         self._pool = QThreadPool.globalInstance()
         self._upload_running = False
+        self._batch_ok = 0
+        self._batch_failed = 0
         self.file_path = QLineEdit()
         self.file_path.setReadOnly(True)
         self.file_path.setPlaceholderText("Selecione um arquivo (PDF/EPUB/MOBI/AZW...)")
@@ -155,20 +163,42 @@ class ImportPanel(QWidget):
             return
 
         self._upload_running = True
+        self._batch_ok = 0
+        self._batch_failed = 0
         self.select_btn.setEnabled(False)
         self.upload_btn.setEnabled(False)
-        self.log.append(f"Iniciando upload: {', '.join(Path(p).name for p in candidates)}")
+        start_msg = f"Iniciando upload: {', '.join(Path(p).name for p in candidates)}"
+        self.log.append(start_msg)
+        self.upload_log.emit(start_msg)
 
         task = _UploadBatchTask(self.backend, candidates)
-        task.signals.log.connect(self.log.append)  # type: ignore[attr-defined]
-        task.signals.ingested.connect(self.ingested.emit)  # type: ignore[attr-defined]
+        task.signals.log.connect(self._on_task_log)  # type: ignore[attr-defined]
+        task.signals.error.connect(self._on_task_error)  # type: ignore[attr-defined]
+        task.signals.ingested.connect(self._on_task_ingested)  # type: ignore[attr-defined]
         task.signals.finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
         self._pool.start(task)
+
+    def _on_task_log(self, message: str) -> None:
+        self.log.append(message)
+        self.upload_log.emit(message)
+
+    def _on_task_error(self, message: str) -> None:
+        self._batch_failed += 1
+        self.log.append(message)
+        self.upload_error.emit(message)
+
+    def _on_task_ingested(self, edition_id: int) -> None:
+        self._batch_ok += 1
+        self.ingested.emit(edition_id)
 
     def _on_upload_finished(self) -> None:
         self._upload_running = False
         self.select_btn.setEnabled(True)
         self.upload_btn.setEnabled(True)
+        summary = f"Upload finalizado: {self._batch_ok} ok, {self._batch_failed} falha(s)."
+        self.log.append(summary)
+        self.upload_log.emit(summary)
+        self.upload_finished.emit(self._batch_ok, self._batch_failed)
 
     def upload_file(self) -> None:
         path = self.file_path.text().strip()
