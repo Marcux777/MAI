@@ -108,6 +108,8 @@ def ingest_file(session, path: Path, providers: Iterable[Provider]) -> None:
         return
 
     local = extractors.extract_metadata(path)
+    if not (local.title or "").strip():
+        local.title = path.stem
     local.identifiers.append(path.stem)
     hits = search_providers(local, providers)
     scored_candidates = score_candidates(local, hits)
@@ -172,7 +174,16 @@ def persist(
         isbn = isbn13(identifier)
         if isbn:
             identifiers.append(("ISBN13", isbn))
+    deduped_identifiers: list[tuple[str, str]] = []
+    seen_identifiers: set[tuple[str, str]] = set()
     for scheme, value in identifiers:
+        key = (scheme, value)
+        if key in seen_identifiers:
+            continue
+        seen_identifiers.add(key)
+        deduped_identifiers.append(key)
+
+    for scheme, value in deduped_identifiers:
         if not session.scalar(
             select(models.Identifier).where(
                 models.Identifier.scheme == scheme,
