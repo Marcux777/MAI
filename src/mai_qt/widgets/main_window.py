@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QUrl, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -39,10 +40,10 @@ class _GlobalFileDropFilter(QObject):
         }:
             return False
 
-        if not isinstance(obj, QWidget):
-            return False
-
-        if obj.window() is not self._window:
+        target = QApplication.widgetAt(QCursor.pos())
+        if target is None and isinstance(obj, QWidget):
+            target = obj
+        if target is None or target.window() is not self._window:
             return False
 
         if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
@@ -69,20 +70,32 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         self.stack = QStackedWidget()
+        self.stack.setAcceptDrops(True)
         self.setCentralWidget(self.stack)
 
         self.library_page = LibraryPage(self.library_service)
+        self.library_page.setAcceptDrops(True)
+        self.library_page.table.setAcceptDrops(True)
+        self.library_page.table.viewport().setAcceptDrops(True)
         self.stack.addWidget(self.library_page)
 
         self.review_page = ReviewPage(self.backend)
         self.organizer_page = OrganizerPanel(self.backend)
         self.import_page = ImportPanel(self.backend)
+        for page in [
+            self.review_page,
+            self.organizer_page,
+            self.import_page,
+        ]:
+            page.setAcceptDrops(True)
         self.import_page.ingested.connect(self._on_ingest_completed)  # type: ignore[attr-defined]
         self.import_page.upload_error.connect(self._on_upload_error)  # type: ignore[attr-defined]
         self.import_page.upload_finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
         self.tasks_page = _simple_page("Tarefas", "Monitoramento das filas de processamento.")
         self.metrics_page = _simple_page("Métricas", "Indicadores-chave do pipeline.")
         self.settings_page = _simple_page("Configurações", "Preferências locais e provedores.")
+        for page in [self.tasks_page, self.metrics_page, self.settings_page]:
+            page.setAcceptDrops(True)
 
         for page in [
             self.review_page,
@@ -102,6 +115,7 @@ class MainWindow(QMainWindow):
         dock = QDockWidget("Biblioteca", self)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea)
         self.collection_tree = CollectionTree(self.collection_service)
+        self.collection_tree.setAcceptDrops(True)
         self.collection_tree.filter_changed.connect(self._on_collection_filter_changed)  # type: ignore[attr-defined]
         dock.setWidget(self.collection_tree)
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
@@ -110,6 +124,7 @@ class MainWindow(QMainWindow):
         dock = QDockWidget("Detalhes", self)
         dock.setAllowedAreas(Qt.RightDockWidgetArea)
         self.detail_panel = DetailPanel()
+        self.detail_panel.setAcceptDrops(True)
         self.detail_panel.bind_save(self._save_detail)
         self.detail_panel.bind_fetch(self._fetch_detail)
         dock.setWidget(self.detail_panel)
@@ -184,39 +199,87 @@ class MainWindow(QMainWindow):
 
     def _drop_paths_from_event(self, event) -> list[str]:  # pragma: no cover - GUI
         mime = event.mimeData()
-        paths: list[str] = []
+        raw_paths: list[str] = []
+
+        def _add(path: str) -> None:
+            value = (path or "").strip()
+            if not value:
+                return
+            if Path(value).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
+                return
+            raw_paths.append(value)
 
         if mime.hasUrls():
             for url in mime.urls():
-                if not url.isLocalFile():
-                    continue
-                local = url.toLocalFile()
-                if not local:
-                    continue
-                if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
-                    continue
-                paths.append(local)
+                if url.isLocalFile():
+                    _add(url.toLocalFile())
+                else:
+                    _add(url.toString())
 
-        if not paths and mime.hasText():
+        for fmt in ("text/uri-list", "x-special/gnome-copied-files"):
+            if not mime.hasFormat(fmt):
+                continue
+            data = bytes(mime.data(fmt)).decode("utf-8", errors="ignore")
+            for idx, raw in enumerate(data.splitlines()):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if fmt == "x-special/gnome-copied-files" and idx == 0 and line.lower() in {"copy", "cut"}:
+                    continue
+                if line.startswith("file://"):
+                    _add(QUrl(line).toLocalFile())
+                else:
+                    _add(line)
+
+        for fmt in (
+            'application/x-qt-windows-mime;value="FileNameW"',
+            'application/x-qt-windows-mime;value="FileName"',
+        ):
+            if not mime.hasFormat(fmt):
+                continue
+            raw = bytes(mime.data(fmt))
+            if "FileNameW" in fmt:
+                text = raw.decode("utf-16le", errors="ignore")
+            else:
+                text = raw.decode("utf-8", errors="ignore")
+            for part in text.split("\x00"):
+                _add(part)
+
+        if mime.hasText():
             text = (mime.text() or "").strip()
             for raw in text.splitlines():
                 line = raw.strip()
                 if not line or line.startswith("#"):
                     continue
                 if line.startswith("file://"):
-                    local = QUrl(line).toLocalFile()
+                    _add(QUrl(line).toLocalFile())
                 else:
-                    local = line
-                if not local:
-                    continue
-                if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
-                    continue
-                paths.append(local)
+                    _add(line)
 
+        if os.getenv("MAI_QT_DND_DEBUG"):
+            print(
+                "DnD mime formats:",
+                mime.formats(),
+                "urls:",
+                len(mime.urls()) if mime.hasUrls() else 0,
+                "text_len:",
+                len(mime.text() or "") if mime.hasText() else 0,
+                "paths:",
+                raw_paths[:3],
+            )
+
+        seen: set[str] = set()
+        paths: list[str] = []
+        for item in raw_paths:
+            if item in seen:
+                continue
+            seen.add(item)
+            paths.append(item)
         return paths
 
     def _accept_drag_event(self, event) -> bool:  # pragma: no cover - GUI
         if self._drop_paths_from_event(event):
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.acceptProposedAction()
             return True
         return False
@@ -251,6 +314,7 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(f"Enviando {len(existing)} arquivo(s) para ingestão…")
         self.import_page.upload_files(existing)
+        event.setDropAction(Qt.DropAction.CopyAction)
         event.acceptProposedAction()
         return True
 
@@ -263,6 +327,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Upload finalizado: {ok} ok, {failed} falha(s).", 12000)
 
     def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
+        if self._accept_drag_event(event):
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # pragma: no cover - GUI
         if self._accept_drag_event(event):
             return
         event.ignore()
