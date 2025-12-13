@@ -50,10 +50,13 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 ## API Local
 - `GET /books?q=...` (FTS + filtros: `author`, `language`, `year`, `tag`).
 - `GET /books/{edition_id}` (detalhes completos + arquivos físicos + hits de provedores).
+- `PATCH /books/{edition_id}` (atualiza metadados: título/autores/tags/identificadores etc.).
+- `DELETE /books/{edition_id}` (remove do catálogo; opcionalmente remove arquivos do disco via `delete_disk=true`).
 - `POST /import/scan` (varre diretórios configurados manualmente).
 - `POST /import/upload` (upload de um arquivo e ingestão imediata).
 - `POST /providers/fetch` (força enriquecimento/reconsulta).
 - `POST /files/attach` (associa arquivo existente a uma edição).
+- `DELETE /files/{file_id}` (remove o registro de arquivo; opcionalmente remove do disco).
 - `GET /opds/**` (opcional, catálogo OPDS 1.2).
 - `POST /import/scan` / `POST|DELETE /import/watch` (já disponíveis na API) para disparar ingestões e controlar o watcher.
 - `POST /organize/preview` (gera manifestos de organização com caminhos sugeridos e permite revisão antes de aplicar).
@@ -88,6 +91,12 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 - **App desktop Qt (Linux + X11)**: `make qt` (ou `xhost +local: && docker compose --profile qt up --build`)  
   O banco persiste em `./var/data` e uploads em `./var/uploads` (volumes montados). Para Wayland/Windows/macOS, rode o Qt nativo por enquanto.
   No modo Docker/X11, você pode **arrastar e soltar arquivos** na janela (o compose monta `${HOME}` em modo read-only para o container do Qt).
+
+## OCR (PDF escaneado)
+
+Para PDFs escaneados (sem texto selecionável), o MAI pode usar OCR para tentar extrair ISBN nas primeiras páginas:
+- Ative com `MAI_PDF_OCR_ENABLED=true` (veja `.env.example`).
+- Requer `tesseract` instalado (no Docker já vem pronto; no host, instale via seu gerenciador de pacotes).
 
 ## Contribuindo
 
