@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
+from mai.core.config import get_settings
+from mai.core.logging import logger
 from mai.ingest.types import LocalMetadata
 
 try:  # Optional dependency
@@ -58,9 +63,19 @@ def extract_epub_meta(path: Path) -> LocalMetadata:
 def extract_pdf_meta(path: Path) -> LocalMetadata:
     if fitz is None:
         raise RuntimeError("PyMuPDF não instalado (pip install pymupdf)")
+    settings = get_settings()
     with fitz.open(path) as doc:
         info = doc.metadata or {}
-        identifiers = _extract_isbn_tokens_from_pdf(doc, info)
+        identifiers = _extract_isbn_tokens_from_pdf(
+            doc,
+            info,
+            ocr_enabled=bool(settings.pdf_ocr_enabled),
+            ocr_lang=settings.pdf_ocr_lang,
+            ocr_max_pages=int(settings.pdf_ocr_max_pages),
+            ocr_dpi=int(settings.pdf_ocr_dpi),
+            ocr_timeout_seconds=float(settings.pdf_ocr_timeout_seconds),
+            ocr_trigger_text_chars=int(settings.pdf_ocr_trigger_text_chars),
+        )
     title = info.get("title")
     author = info.get("author")
     year = info.get("creationDate")
@@ -98,7 +113,17 @@ def _year_from_date(value: Optional[str]) -> Optional[int]:
     return None
 
 
-def _extract_isbn_tokens_from_pdf(doc, info: dict) -> list[str]:
+def _extract_isbn_tokens_from_pdf(
+    doc,
+    info: dict,
+    *,
+    ocr_enabled: bool,
+    ocr_lang: str,
+    ocr_max_pages: int,
+    ocr_dpi: int,
+    ocr_timeout_seconds: float,
+    ocr_trigger_text_chars: int,
+) -> list[str]:
     tokens: list[str] = []
     for key in ("subject", "keywords", "title"):
         value = info.get(key)
@@ -109,6 +134,7 @@ def _extract_isbn_tokens_from_pdf(doc, info: dict) -> list[str]:
         return _dedupe_preserve_order(tokens)
 
     max_pages = min(3, int(getattr(doc, "page_count", 0) or 0))
+    text_chars = 0
     for page_index in range(max_pages):
         try:
             page = doc.load_page(page_index)
@@ -117,10 +143,33 @@ def _extract_isbn_tokens_from_pdf(doc, info: dict) -> list[str]:
             continue
         if not text:
             continue
+        text_chars += _count_alnum(text)
         tokens.extend(_extract_isbn_tokens(text))
         if tokens:
             break
-    return _dedupe_preserve_order(tokens)
+
+    if tokens:
+        return _dedupe_preserve_order(tokens)
+
+    if not ocr_enabled:
+        return []
+
+    if text_chars >= max(0, int(ocr_trigger_text_chars)):
+        return []
+
+    try:
+        ocr_tokens = _extract_isbn_tokens_from_pdf_ocr(
+            doc,
+            max_pages=max(1, int(ocr_max_pages)),
+            dpi=max(72, int(ocr_dpi)),
+            lang=(ocr_lang or "").strip() or "eng",
+            timeout_seconds=max(1.0, float(ocr_timeout_seconds)),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("OCR falhou para PDF: %s", exc)
+        return []
+
+    return _dedupe_preserve_order(ocr_tokens)
 
 
 def _extract_isbn_tokens(text: str) -> list[str]:
@@ -154,3 +203,77 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
         seen.add(item)
         out.append(item)
     return out
+
+
+def _count_alnum(text: str) -> int:
+    return sum(1 for ch in text if ch.isalnum())
+
+
+def _extract_isbn_tokens_from_pdf_ocr(doc, *, max_pages: int, dpi: int, lang: str, timeout_seconds: float) -> list[str]:
+    if fitz is None:
+        return []
+
+    if not _tesseract_available():
+        logger.info("OCR habilitado, mas 'tesseract' não está instalado/visível no PATH")
+        return []
+
+    total_pages = int(getattr(doc, "page_count", 0) or 0)
+    limit = min(max_pages, total_pages)
+    if limit <= 0:
+        return []
+
+    scale = dpi / 72.0
+    matrix = fitz.Matrix(scale, scale)
+    for page_index in range(limit):
+        try:
+            page = doc.load_page(page_index)
+        except Exception:  # pragma: no cover - best-effort
+            continue
+        text = _ocr_pdf_page_text(page, matrix=matrix, lang=lang, timeout_seconds=timeout_seconds)
+        tokens = _extract_isbn_tokens(text)
+        if tokens:
+            return tokens
+    return []
+
+
+def _ocr_pdf_page_text(page, *, matrix, lang: str, timeout_seconds: float) -> str:
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
+        pix.save(str(tmp_path))
+        return _tesseract_image_to_text(tmp_path, lang=lang, timeout_seconds=timeout_seconds)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:  # pragma: no cover
+            pass
+
+
+def _tesseract_available() -> bool:
+    return shutil.which("tesseract") is not None
+
+
+def _tesseract_image_to_text(image_path: Path, *, lang: str, timeout_seconds: float) -> str:
+    cmd = ["tesseract", str(image_path), "stdout"]
+    if lang:
+        cmd.extend(["-l", lang])
+    cmd.extend(["--psm", "6"])
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    except subprocess.TimeoutExpired:
+        return ""
+    if result.returncode != 0:
+        logger.debug("tesseract falhou (%s): %s", result.returncode, (result.stderr or "").strip())
+        return ""
+    return result.stdout or ""

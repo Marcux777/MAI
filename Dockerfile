@@ -23,6 +23,9 @@ RUN apt-get update && \
         libharfbuzz0b \
         libfribidi0 \
         poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-por \
         libdbus-1-3 \
         libegl1 \
         libgl1 \

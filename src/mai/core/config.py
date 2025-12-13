@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     admin_username: str = "mai"
     admin_password: str = "mai"
 
+    # OCR (PDF escaneado)
+    pdf_ocr_enabled: bool = False
+    pdf_ocr_lang: str = "eng"
+    pdf_ocr_max_pages: int = 3
+    pdf_ocr_dpi: int = 200
+    pdf_ocr_timeout_seconds: float = 10.0
+    pdf_ocr_trigger_text_chars: int = 40
+
     class Config:
         env_prefix = "MAI_"
         env_file = ".env"
