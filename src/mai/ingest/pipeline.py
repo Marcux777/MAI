@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import time
 import unicodedata
 from datetime import datetime
@@ -26,6 +27,15 @@ from mai.utils.files import compute_sha256
 
 SUPPORTED_EXTENSIONS = {".epub", ".pdf", ".mobi", ".azw", ".azw3"}
 ACCEPT_THRESHOLD = 0.85
+_UPLOAD_PREFIX_RE = re.compile(r"(?i)^[0-9a-f]{32}_(.+)$")
+
+
+def _stem_hint(path: Path) -> str:
+    stem = path.stem
+    match = _UPLOAD_PREFIX_RE.match(stem)
+    if match:
+        stem = match.group(1)
+    return stem
 
 
 def build_providers(google_key: Optional[str] = None) -> List[Provider]:
@@ -107,10 +117,11 @@ def ingest_file(session, path: Path, providers: Iterable[Provider]) -> None:
         logger.info("Arquivo já existente atualizado: %s", path)
         return
 
+    stem_hint = _stem_hint(path)
     local = extractors.extract_metadata(path)
     if not (local.title or "").strip():
-        local.title = path.stem
-    local.identifiers.append(path.stem)
+        local.title = stem_hint
+    local.identifiers.append(stem_hint)
     hits = search_providers(local, providers)
     scored_candidates = score_candidates(local, hits)
     candidate, top_score, ranked_candidates = reconcile(scored_candidates)

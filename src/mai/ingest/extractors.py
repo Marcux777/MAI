@@ -32,6 +32,9 @@ _ISBN_TOKEN_RE = re.compile(
 )
 _ISBN13_BARE_RE = re.compile(r"\b97[89][0-9 \t-]{10,17}[0-9]\b")
 
+_PDF_BAD_TITLE_SUFFIX_RE = re.compile(r"(?i)\.(qxd|docx?|indd|pptx?|xlsx?|ps)$")
+_PDF_EDITION_LINE_RE = re.compile(r"(?i)\b(ed[ií][cç][aã]o|edition|ed\.)\b")
+
 
 def extract_metadata(path: Path) -> LocalMetadata:
     ext = path.suffix.lower()
@@ -66,6 +69,7 @@ def extract_pdf_meta(path: Path) -> LocalMetadata:
     settings = get_settings()
     with fitz.open(path) as doc:
         info = doc.metadata or {}
+        inferred_title, inferred_authors = _infer_pdf_title_and_authors(doc)
         identifiers = _extract_isbn_tokens_from_pdf(
             doc,
             info,
@@ -79,9 +83,12 @@ def extract_pdf_meta(path: Path) -> LocalMetadata:
     title = info.get("title")
     author = info.get("author")
     year = info.get("creationDate")
+
+    resolved_title = _choose_pdf_title(title, inferred_title, path)
+    resolved_authors = _choose_pdf_authors(author, inferred_authors)
     return LocalMetadata(
-        title=title,
-        authors=[author] if author else [],
+        title=resolved_title,
+        authors=resolved_authors,
         identifiers=identifiers,
         language=None,
         year=_year_from_date(year),
@@ -111,6 +118,121 @@ def _year_from_date(value: Optional[str]) -> Optional[int]:
     if len(digits) >= 4:
         return int(digits[:4])
     return None
+
+
+def _choose_pdf_title(title: Optional[str], inferred_title: Optional[str], path: Path) -> Optional[str]:
+    candidate = (title or "").strip()
+    if candidate and not _is_suspicious_pdf_title(candidate):
+        return candidate
+    if inferred_title and inferred_title.strip():
+        return inferred_title.strip()
+    fallback = _filename_hint(path)
+    return fallback or (candidate or None)
+
+
+def _choose_pdf_authors(author: Optional[str], inferred_authors: list[str]) -> list[str]:
+    candidate = (author or "").strip()
+    if candidate and not _is_suspicious_pdf_author(candidate):
+        return [candidate]
+    if inferred_authors:
+        return inferred_authors
+    return [candidate] if candidate else []
+
+
+def _is_suspicious_pdf_title(value: str) -> bool:
+    v = (value or "").strip()
+    if not v:
+        return True
+    if _PDF_BAD_TITLE_SUFFIX_RE.search(v):
+        return True
+    if "_" in v and " " not in v:
+        return True
+    return False
+
+
+def _is_suspicious_pdf_author(value: str) -> bool:
+    v = (value or "").strip()
+    if not v:
+        return True
+    if " " not in v and len(v) <= 3:
+        return True
+    if v.islower() and len(v) <= 6:
+        return True
+    return False
+
+
+def _filename_hint(path: Path) -> str:
+    stem = path.stem
+    match = re.match(r"^[0-9a-f]{32}_(.+)$", stem, flags=re.IGNORECASE)
+    if match:
+        stem = match.group(1)
+    stem = stem.replace("_", " ").replace("-", " ")
+    return " ".join(stem.split())
+
+
+def _infer_pdf_title_and_authors(doc) -> tuple[Optional[str], list[str]]:
+    if fitz is None:
+        return None, []
+    try:
+        page = doc.load_page(0)
+        text = page.get_text() or ""
+    except Exception:  # pragma: no cover - best-effort
+        return None, []
+
+    raw_lines = [line.replace("\u00a0", " ").strip() for line in text.splitlines()]
+    raw_lines = [line for line in raw_lines if line]
+    if not raw_lines:
+        return None, []
+
+    author_line = _find_pdf_author_line(raw_lines)
+    authors = _parse_pdf_authors(author_line) if author_line else []
+
+    title_lines: list[str] = []
+    for line in raw_lines[:10]:
+        normalized_line = " ".join(line.split())
+        if author_line and line == author_line:
+            break
+        if _PDF_EDITION_LINE_RE.search(normalized_line):
+            continue
+        if _ISBN_TOKEN_RE.search(normalized_line) or _ISBN13_BARE_RE.search(normalized_line):
+            continue
+        title_lines.append(normalized_line)
+        if len(title_lines) >= 3:
+            break
+
+    title = _join_title_lines(title_lines)
+    return title, authors
+
+
+def _find_pdf_author_line(lines: list[str]) -> Optional[str]:
+    for line in lines[:20]:
+        parts = [p.strip() for p in re.split(r"\s{2,}|\t+", line) if p.strip()]
+        if len(parts) >= 2 and all(any(ch.isalpha() for ch in part) for part in parts):
+            return line
+    return None
+
+
+def _parse_pdf_authors(line: str) -> list[str]:
+    if not line:
+        return []
+    parts = [p.strip() for p in re.split(r"\s{2,}|\t+", line) if p.strip()]
+    cleaned: list[str] = []
+    for part in parts:
+        part = " ".join(part.split()).strip(" ,;")
+        if not part or len(part) < 3:
+            continue
+        cleaned.append(part)
+    return _dedupe_preserve_order(cleaned)
+
+
+def _join_title_lines(lines: list[str]) -> Optional[str]:
+    parts = [line.strip(" -–—") for line in lines if line.strip()]
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0][:180]
+    title = f"{parts[0]}: {' '.join(parts[1:])}"
+    return title[:180]
 
 
 def _extract_isbn_tokens_from_pdf(
