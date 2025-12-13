@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, QUrl, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
@@ -183,18 +183,36 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Ingestão concluída (edition_id={edition_id}).", 8000)
 
     def _drop_paths_from_event(self, event) -> list[str]:  # pragma: no cover - GUI
-        if not event.mimeData().hasUrls():
-            return []
+        mime = event.mimeData()
         paths: list[str] = []
-        for url in event.mimeData().urls():
-            if not url.isLocalFile():
-                continue
-            local = url.toLocalFile()
-            if not local:
-                continue
-            if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
-                continue
-            paths.append(local)
+
+        if mime.hasUrls():
+            for url in mime.urls():
+                if not url.isLocalFile():
+                    continue
+                local = url.toLocalFile()
+                if not local:
+                    continue
+                if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
+                    continue
+                paths.append(local)
+
+        if not paths and mime.hasText():
+            text = (mime.text() or "").strip()
+            for raw in text.splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("file://"):
+                    local = QUrl(line).toLocalFile()
+                else:
+                    local = line
+                if not local:
+                    continue
+                if Path(local).suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
+                    continue
+                paths.append(local)
+
         return paths
 
     def _accept_drag_event(self, event) -> bool:  # pragma: no cover - GUI
@@ -212,10 +230,16 @@ class MainWindow(QMainWindow):
         missing = [p for p in paths if p not in existing]
 
         if not existing:
-            self.statusBar().showMessage(
-                "Arquivo não acessível neste ambiente. Se estiver no Docker, coloque em $HOME ou monte o diretório no compose.",
-                12000,
+            first = missing[0] if missing else ""
+            msg = (
+                "Não consegui acessar o arquivo dentro do ambiente atual.\n\n"
+                f"Exemplo: {first}\n\n"
+                "Se estiver rodando o Qt via Docker:\n"
+                "- Garanta que você rodou `make qt` (sem sudo), para montar seu $HOME no container.\n"
+                "- Ou mova o arquivo para um diretório montado (ex.: seu $HOME).\n"
             )
+            QMessageBox.information(self, "Upload (drag-and-drop)", msg)
+            self.statusBar().showMessage("Arquivo não acessível dentro do container.", 12000)
             event.ignore()
             return True
 
