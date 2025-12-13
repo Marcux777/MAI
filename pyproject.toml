@@ -46,11 +46,12 @@ mai-organize = "mai.organizer.cli:main"
 mai-qt = "mai_qt.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mai"]
+packages = ["src/mai", "src/mai_qt"]
 
 [tool.hatch.build.targets.sdist]
 include = [
   "src/mai",
+  "src/mai_qt",
   "README.md",
   "PRD.md",
   "db/schema.sql",
