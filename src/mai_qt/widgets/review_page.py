@@ -24,14 +24,14 @@ class ReviewPage(QWidget):
         super().__init__(parent)
         self.backend = backend
         self.queue: list[dict] = []
+        self._auto_refreshed = False
         self._build_ui()
-        self.refresh()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
         self.refresh_btn = QPushButton("Atualizar")
-        self.refresh_btn.clicked.connect(self.refresh)
+        self.refresh_btn.clicked.connect(lambda: self.refresh(user_initiated=True))
         header.addWidget(self.refresh_btn)
 
         header.addWidget(QLabel("Candidato"))
@@ -64,11 +64,26 @@ class ReviewPage(QWidget):
         self.status_label = QLabel("Revise os candidatos antes de aceitar.")
         layout.addWidget(self.status_label)
 
-    def refresh(self) -> None:
+    def showEvent(self, event) -> None:  # pragma: no cover - GUI
+        super().showEvent(event)
+        if self._auto_refreshed:
+            return
+        self._auto_refreshed = True
+        self.refresh(user_initiated=False)
+
+    def refresh(self, user_initiated: bool = True) -> None:
         try:
             payload = self.backend.fetch_review_queue()
         except Exception as exc:  # pragma: no cover - GUI feedback
-            QMessageBox.critical(self, "Revisão", f"Falha ao buscar fila: {exc}")
+            msg = (
+                f"Falha ao buscar fila em {self.backend.base_url}: {exc}\n\n"
+                "Verifique se a API está rodando e se `MAI_API_URL` está correto."
+            )
+            self.queue = []
+            self._populate_table()
+            self.status_label.setText("API indisponível.")
+            if user_initiated:
+                QMessageBox.critical(self, "Revisão", msg)
             return
         self.queue = payload.get("items", [])
         self._populate_table()

@@ -92,7 +92,10 @@ class BackendClient:
     """Cliente HTTP simples para reutilizar os endpoints FastAPI no app Qt."""
 
     def __init__(self, base_url: str | None = None, timeout: float = 15.0) -> None:
-        self.base_url = (base_url or os.getenv("MAI_API_URL") or "http://127.0.0.1:8000").rstrip("/")
+        default_base_url = "http://127.0.0.1:8000"
+        if Path("/.dockerenv").exists():
+            default_base_url = "http://api:8000"
+        self.base_url = (base_url or os.getenv("MAI_API_URL") or default_base_url).rstrip("/")
         self.timeout = timeout
 
     def _request(self, method: str, path: str, **kwargs):
