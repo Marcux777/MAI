@@ -1,0 +1,13 @@
+# <type>(<scope>): <descrição curta no imperativo>
+#
+# Tipos comuns: feat, fix, docs, chore, refactor, perf, test, ci, build, revert
+# Scopes (exemplos): ingestion, providers, db, search, api, ui, opds, infra, roadmap
+#
+# Corpo (opcional):
+# - Contexto / por quê
+# - Impacto / risco
+# - Performance (hot paths)
+#
+# Breaking changes:
+# - use ! no header (ex.: feat(api)!: ...) ou footer "BREAKING CHANGE: ..."
+

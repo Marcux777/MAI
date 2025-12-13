@@ -1,0 +1,81 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate version and changelog
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          python - <<'PY' "${tag}" "${version}"
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          tag = sys.argv[1]
+          version = sys.argv[2]
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          project_version = pyproject["project"]["version"]
+          if project_version != version:
+              raise SystemExit(f"Version mismatch: tag {tag} != pyproject.toml {project_version}")
+
+          init_text = Path("src/mai/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'__version__\\s*=\\s*["\\\']([^"\\\']+)["\\\']', init_text)
+          if not match:
+              raise SystemExit("Could not find __version__ in src/mai/__init__.py")
+          init_version = match.group(1)
+          if init_version != version:
+              raise SystemExit(f"Version mismatch: tag {tag} != src/mai/__init__.py {init_version}")
+
+          changelog_lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          header_prefix = f"## [{version}]"
+          start = next((i for i, line in enumerate(changelog_lines) if line.startswith(header_prefix)), None)
+          if start is None:
+              raise SystemExit(f"CHANGELOG.md missing section header starting with: {header_prefix}")
+          end = next(
+              (i for i in range(start + 1, len(changelog_lines)) if changelog_lines[i].startswith("## [")),
+              len(changelog_lines),
+          )
+          section = "\n".join(changelog_lines[start:end]).strip() + "\n"
+          Path("release_notes.md").write_text(section, encoding="utf-8")
+          print("release_notes.md generated")
+          PY
+
+      - name: Pytest
+        env:
+          MAI_DISABLE_WATCHER: "1"
+        run: pytest -q
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+

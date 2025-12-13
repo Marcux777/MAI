@@ -1,0 +1,21 @@
+# Ajuste os owners para usuários/times reais do GitHub antes de habilitar
+# "Require review from Code Owners" nas proteções de branch.
+
+# Padrão: qualquer mudança exige revisão do owner.
+* @marcusvinicius
+
+# Backend (FastAPI/ingest/organizer/db)
+/src/mai/ @marcusvinicius
+
+# UI desktop (PySide6)
+/src/mai_qt/ @marcusvinicius
+
+# Schema / DB
+/db/ @marcusvinicius
+
+# Testes
+/tests/ @marcusvinicius
+
+# Docs
+/*.md @marcusvinicius
+

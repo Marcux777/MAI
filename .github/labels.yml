@@ -1,0 +1,72 @@
+- name: "type: bug"
+  color: "d73a4a"
+  description: "Algo não funciona (bug)."
+
+- name: "type: feature"
+  color: "1d76db"
+  description: "Nova funcionalidade ou melhoria incremental."
+
+- name: "type: epic"
+  color: "6f42c1"
+  description: "Bloco grande de trabalho (quebra em issues)."
+
+- name: "type: chore"
+  color: "cfd3d7"
+  description: "Manutenção/infra/limpeza sem mudança de produto."
+
+- name: "type: docs"
+  color: "0e8a16"
+  description: "Documentação."
+
+- name: "type: tech-debt"
+  color: "fbca04"
+  description: "Dívida técnica / refactors necessários."
+
+- name: "area: ingestion"
+  color: "006b75"
+  description: "Importação, extração, pipeline e watcher."
+
+- name: "area: providers"
+  color: "006b75"
+  description: "Integrações (Open Library, Google Books, BookBrainz, etc.)."
+
+- name: "area: db"
+  color: "006b75"
+  description: "SQLite/SQLAlchemy, schema, migrações."
+
+- name: "area: search"
+  color: "006b75"
+  description: "FTS5, indexação, ranking e consultas."
+
+- name: "area: api"
+  color: "006b75"
+  description: "FastAPI endpoints, auth, contratos e serviços."
+
+- name: "area: ui"
+  color: "006b75"
+  description: "UI (Qt/PySide6) e experiência do usuário."
+
+- name: "area: opds"
+  color: "006b75"
+  description: "OPDS feed e entrega de arquivos."
+
+- name: "area: infra"
+  color: "006b75"
+  description: "Docker, CI, scripts e tooling."
+
+- name: "prio: p0"
+  color: "b60205"
+  description: "Crítico: bloqueia uso / risco de perda de dados."
+
+- name: "prio: p1"
+  color: "d93f0b"
+  description: "Alto impacto: sem workaround."
+
+- name: "prio: p2"
+  color: "fbca04"
+  description: "Médio/baixo impacto: tem workaround."
+
+- name: "status: blocked"
+  color: "000000"
+  description: "Bloqueado por dependência/decisão externa."
+

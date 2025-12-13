@@ -1,0 +1,24 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title (Conventional Commits)
+        shell: bash
+        run: |
+          title="${{ github.event.pull_request.title }}"
+          echo "PR title: ${title}"
+          regex='^(feat|fix|docs|chore|refactor|perf|test|ci|build|revert)(\\([a-z0-9-]+\\))?(!)?: .+'
+          if [[ ! "${title}" =~ ${regex} ]]; then
+            echo "::error title=Invalid PR title::Use Conventional Commits: type(scope): description (ex.: feat(api): add endpoint)"
+            exit 1
+          fi
+

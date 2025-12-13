@@ -1,0 +1,101 @@
+name: Bug Report
+description: Reporte um problema real (algo que quebrou).
+title: "[Bug]: "
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar! Quanto mais reproduzível, mais rápido de corrigir.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o problema e o impacto.
+      placeholder: Ao importar um EPUB, a ingestão falha com...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      description: Passo a passo para reproduzir o bug.
+      placeholder: |
+        1. Rode `mai-api`
+        2. Faça upload do arquivo X
+        3. Veja o erro Y
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado esperado
+      placeholder: A ingestão deveria criar a edição e indexar no FTS.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Resultado atual / logs
+      description: Cole logs/tracebacks e mensagens relevantes.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área afetada
+      description: Se você tiver permissão, aplique também o label `area:*`.
+      options:
+        - ingestion
+        - providers
+        - db
+        - search
+        - api
+        - ui
+        - opds
+        - infra
+        - não sei
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade sugerida
+      description: Se você tiver permissão, aplique também o label `prio:*`.
+      options:
+        - p0 (bloqueia uso / perda de dados)
+        - p1 (impacto alto / sem workaround)
+        - p2 (impacto médio/baixo / tem workaround)
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Ambiente
+      description: SO, Python, Docker, etc.
+      placeholder: |
+        - OS:
+        - Python:
+        - Docker/Compose:
+        - MAI commit/tag:
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Eu procurei se já existe uma issue igual/parecida.
+          required: true
+        - label: Eu consigo reproduzir isso de forma consistente.
+          required: false
+

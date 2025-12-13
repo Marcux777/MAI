@@ -1,0 +1,79 @@
+name: Feature Request
+description: Sugira uma melhoria pequena/média (incremental).
+title: "[Feature]: "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use este template para propor features incrementais.
+        Para blocos grandes com checklist, use o template **Epic**.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema / motivação
+      description: Que dor isso resolve? Para quem? Por quê agora?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Como deveria funcionar? Inclua comportamento esperado e UX quando aplicável.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Escopo (in / out)
+      placeholder: |
+        In:
+        - ...
+        Out:
+        - ...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      description: Se você tiver permissão, aplique também o label `area:*`.
+      options:
+        - ingestion
+        - providers
+        - db
+        - search
+        - api
+        - ui
+        - opds
+        - infra
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade sugerida
+      description: Se você tiver permissão, aplique também o label `prio:*`.
+      options:
+        - p0
+        - p1
+        - p2
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceitação
+      description: Como sabemos que está pronto? (pode ser checklist)
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+

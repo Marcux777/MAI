@@ -1,0 +1,46 @@
+name: Epic
+description: Um bloco grande de trabalho (com checklist e milestones).
+title: "[Epic]: "
+labels: ["type: epic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Epics devem ser quebradas em issues menores (bugs/features), com checklist e acompanhamento.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Objetivo
+      description: Qual o objetivo final e o valor entregue?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Resultado esperado
+      description: O que muda para o usuário? O que fica melhor/mais rápido/mais confiável?
+    validations:
+      required: true
+
+  - type: textarea
+    id: checklist
+    attributes:
+      label: Checklist
+      description: Quebre em itens rastreáveis (idealmente linkando issues).
+      placeholder: |
+        - [ ] #123
+        - [ ] #124
+        - [ ] Ajustar docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependências / riscos
+      placeholder: Dependências externas, migrações, risco de regressão, etc.
+    validations:
+      required: false
+
