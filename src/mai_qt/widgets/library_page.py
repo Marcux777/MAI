@@ -79,3 +79,15 @@ class LibraryPage(QWidget):
             if row:
                 ids.append(int(row.edition_id))
         return ids
+
+    def select_edition(self, edition_id: int) -> bool:
+        for row_index in range(self.model.rowCount()):
+            row = self.model.book_at(row_index)
+            if not row:
+                continue
+            if int(row.edition_id) != int(edition_id):
+                continue
+            self.table.selectRow(row_index)
+            self.table.scrollTo(self.model.index(row_index, 0))
+            return True
+        return False

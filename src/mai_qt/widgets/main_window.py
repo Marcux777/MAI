@@ -21,6 +21,8 @@ from ..widgets.review_page import ReviewPage
 from ..widgets.import_panel import ImportPanel
 from ..pages.simple_pages import _simple_page
 
+_SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -134,22 +136,38 @@ class MainWindow(QMainWindow):
         self.library_page.refresh()
 
     def _on_ingest_completed(self, edition_id: int) -> None:
+        on_library = self.stack.currentWidget() == self.library_page
         self._refresh_all()
+        if on_library:
+            self.library_page.select_edition(edition_id)
+        self.statusBar().showMessage(f"Ingestão concluída (edition_id={edition_id}).", 8000)
 
     def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.isLocalFile() and Path(url.toLocalFile()).is_file():
+                if not url.isLocalFile():
+                    continue
+                path = Path(url.toLocalFile())
+                if path.is_file() and path.suffix.lower() in _SUPPORTED_DROP_EXTENSIONS:
                     event.acceptProposedAction()
                     return
         event.ignore()
 
     def dropEvent(self, event) -> None:  # pragma: no cover - GUI
-        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        paths: list[str] = []
+        for url in event.mimeData().urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in _SUPPORTED_DROP_EXTENSIONS:
+                continue
+            paths.append(str(path))
         if not paths:
             event.ignore()
             return
-        self.stack.setCurrentWidget(self.import_page)
+        self.statusBar().showMessage(f"Enviando {len(paths)} arquivo(s) para ingestão…", 5000)
         self.import_page.upload_files(paths)
         event.acceptProposedAction()
 
