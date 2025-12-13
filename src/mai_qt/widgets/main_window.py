@@ -361,8 +361,19 @@ class MainWindow(QMainWindow):
             return False
         self._hide_drop_overlay()
 
-        existing = [p for p in paths if Path(p).is_file()]
-        missing = [p for p in paths if p not in existing]
+        existing: list[str] = []
+        missing: list[str] = []
+        for p in paths:
+            path = Path(p)
+            if path.is_file():
+                existing.append(str(path))
+                continue
+            if path.is_absolute() and Path("/host").exists():
+                alt = Path("/host") / path.relative_to("/")
+                if alt.is_file():
+                    existing.append(str(alt))
+                    continue
+            missing.append(str(path))
 
         if not existing:
             first = missing[0] if missing else ""
@@ -371,7 +382,7 @@ class MainWindow(QMainWindow):
                 f"Exemplo: {first}\n\n"
                 "Se estiver rodando o Qt via Docker:\n"
                 "- Garanta que você rodou `make qt` (sem sudo), para montar seu $HOME no container.\n"
-                "- Ou mova o arquivo para um diretório montado (ex.: seu $HOME).\n"
+                "- Agora também montamos a raiz em modo leitura (/host). Se o arquivo está em /run/media/... ele deve existir em /host/run/media/...\n"
             )
             QMessageBox.information(self, "Upload (drag-and-drop)", msg)
             self.statusBar().showMessage("Arquivo não acessível dentro do container.", 12000)

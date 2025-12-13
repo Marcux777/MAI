@@ -130,6 +130,10 @@ class BackendClient:
 
     def import_upload(self, path: str | Path) -> dict:
         file_path = Path(path).expanduser()
+        if not file_path.exists() and file_path.is_absolute() and Path("/host").exists():
+            mapped = Path("/host") / file_path.relative_to("/")
+            if mapped.exists():
+                file_path = mapped
         if not file_path.exists() or not file_path.is_file():
             raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
         mime, _ = mimetypes.guess_type(file_path.name)

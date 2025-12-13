@@ -148,7 +148,12 @@ class ImportPanel(QWidget):
             suffix = Path(path).suffix.lower()
             if suffix not in _SUPPORTED_EXTENSIONS:
                 continue
-            candidates.append(path)
+            p = Path(path)
+            if not p.exists() and p.is_absolute() and Path("/host").exists():
+                alt = Path("/host") / p.relative_to("/")
+                if alt.exists():
+                    p = alt
+            candidates.append(str(p))
 
         if not candidates:
             QMessageBox.information(

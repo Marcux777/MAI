@@ -39,4 +39,5 @@ services:
       - ./var/data:/app/var/data
       - ./var/uploads:/app/var/uploads
       - ${HOME}:${HOME}:ro
+      - /:/host:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
