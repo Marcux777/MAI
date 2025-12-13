@@ -35,6 +35,7 @@ services:
       MAI_API_URL: http://api:8000
       DISPLAY: ${DISPLAY}
       QT_QPA_PLATFORM: xcb
+      MAI_QT_DND_DEBUG: ${MAI_QT_DND_DEBUG:-}
     volumes:
       - ./var/data:/app/var/data
       - ./var/uploads:/app/var/uploads
