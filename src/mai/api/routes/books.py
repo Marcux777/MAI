@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,10 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from mai.api.dependencies import get_db
 from mai.db import models
+from mai.db.indexer import upsert_for_edition
+from mai.library import crud as library_crud
 from mai.schemas.books import (
     AuthorSchema,
     BookDetail,
+    BookDeleteResponse,
     BookListItem,
+    BookUpdateRequest,
     EditionSchema,
     FileDetailSchema,
     FileSchema,
@@ -87,6 +92,7 @@ def list_books(
             selectinload(models.Edition.work).selectinload(models.Work.authors),
             selectinload(models.Edition.files),
             selectinload(models.Edition.identifiers),
+            selectinload(models.Edition.tags),
         )
     )
 
@@ -99,6 +105,7 @@ def serialize_book(edition: models.Edition) -> BookListItem:
     authors = [AuthorSchema(id=a.id, name=a.name) for a in (edition.work.authors if edition.work else [])]
     files = [FileSchema(id=f.id, path=f.path, mime=f.mime) for f in edition.files]
     identifiers = [IdentifierSchema(scheme=i.scheme, value=i.value) for i in edition.identifiers]
+    tags = [t.name for t in edition.tags]
     work_title = edition.work.title if edition.work else (edition.title or "")
 
     edition_schema = EditionSchema(
@@ -118,6 +125,7 @@ def serialize_book(edition: models.Edition) -> BookListItem:
         authors=authors,
         files=files,
         identifiers=identifiers,
+        tags=tags,
     )
 
 
@@ -130,6 +138,7 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
             selectinload(models.Edition.work).selectinload(models.Work.authors),
             selectinload(models.Edition.files),
             selectinload(models.Edition.identifiers),
+            selectinload(models.Edition.tags),
         )
     )
     edition = db.execute(stmt).scalar_one_or_none()
@@ -155,6 +164,7 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
     )
     authors = [AuthorSchema(id=a.id, name=a.name) for a in (edition.work.authors if edition.work else [])]
     identifiers = [IdentifierSchema(scheme=i.scheme, value=i.value) for i in edition.identifiers]
+    tags = [t.name for t in edition.tags]
     files = [
         FileDetailSchema(
             id=file.id,
@@ -202,6 +212,105 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         authors=authors,
         identifiers=identifiers,
         files=files,
+        tags=tags,
         providers=providers,
         history=history,
+    )
+
+
+@router.patch("/{edition_id}", response_model=BookDetail)
+def update_book(edition_id: int, body: BookUpdateRequest, db: Session = Depends(get_db)) -> BookDetail:
+    edition = db.get(models.Edition, edition_id)
+    if not edition:
+        raise HTTPException(status_code=404, detail="Edição não encontrada")
+    work = edition.work
+    if not work:
+        raise HTTPException(status_code=500, detail="Obra associada não encontrada")
+
+    fields = set(body.model_fields_set or set())
+    touched_work = False
+
+    if "title" in fields:
+        title = (body.title or "").strip()
+        edition.title = title or None
+        if title:
+            work.title = title
+            touched_work = True
+
+    if "subtitle" in fields:
+        subtitle = (body.subtitle or "").strip()
+        edition.subtitle = subtitle or None
+
+    if "publisher" in fields:
+        publisher = (body.publisher or "").strip()
+        edition.publisher = publisher or None
+
+    if "pub_year" in fields:
+        edition.pub_year = body.pub_year
+
+    if "language" in fields:
+        language = (body.language or "").strip() or None
+        edition.language = language
+        work.language = language
+        touched_work = True
+
+    if "description" in fields:
+        description = (body.description or "").strip() or None
+        work.description = description
+        touched_work = True
+
+    if "authors" in fields:
+        library_crud.set_work_authors(db, work, body.authors or [])
+        touched_work = True
+
+    if "tags" in fields:
+        library_crud.set_edition_tags(db, edition, body.tags or [])
+
+    if "identifiers" in fields:
+        pairs = [(item.scheme, item.value) for item in (body.identifiers or [])]
+        try:
+            library_crud.set_edition_identifiers(db, edition, pairs)
+        except library_crud.IdentifierConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    now = datetime.utcnow()
+    library_crud.touch_edition(edition)
+    if touched_work:
+        library_crud.touch_work(work)
+        work.updated_at = now
+    edition.updated_at = now
+
+    db.flush()
+    upsert_for_edition(db, edition.id)
+    db.commit()
+    return get_book_detail(edition_id, db)
+
+
+@router.delete("/{edition_id}", response_model=BookDeleteResponse)
+def delete_book(
+    edition_id: int,
+    delete_files: bool = Query(default=True, description="Remove os registros de arquivos associados"),
+    delete_disk: bool = Query(default=False, description="Remove os arquivos também do disco (requer delete_files)"),
+    db: Session = Depends(get_db),
+) -> BookDeleteResponse:
+    try:
+        result = library_crud.delete_edition(
+            db,
+            edition_id,
+            delete_files=delete_files,
+            delete_disk=delete_disk,
+        )
+        db.commit()
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return BookDeleteResponse(
+        edition_id=result.edition_id,
+        deleted_files=result.deleted_files,
+        deleted_disk_files=result.deleted_disk_files,
+        deleted_work=result.deleted_work,
+        disk_errors=result.disk_errors,
     )

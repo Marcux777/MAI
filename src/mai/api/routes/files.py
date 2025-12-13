@@ -3,14 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mai.api.dependencies import get_db
 from mai.db import models
 from mai.db.indexer import upsert_for_edition
-from mai.schemas.files import AttachFileRequest, AttachFileResponse
+from mai.library import crud as library_crud
+from mai.schemas.files import AttachFileRequest, AttachFileResponse, DeleteFileResponse
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -35,6 +36,26 @@ def attach_file(body: AttachFileRequest, db: Session = Depends(get_db)) -> Attac
 
     db.commit()
     return AttachFileResponse(file_id=file_record.id, edition_id=edition.id, path=file_record.path)
+
+
+@router.delete("/{file_id}", response_model=DeleteFileResponse)
+def delete_file(
+    file_id: int,
+    delete_disk: bool = Query(default=False, description="Remove também o arquivo do disco"),
+    db: Session = Depends(get_db),
+) -> DeleteFileResponse:
+    try:
+        result = library_crud.delete_file(db, file_id, delete_disk=delete_disk)
+        db.commit()
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+    return DeleteFileResponse(
+        file_id=result.file_id,
+        edition_id=result.edition_id,
+        deleted_disk=result.deleted_disk,
+        disk_errors=result.disk_errors,
+    )
 
 
 def _resolve_file(db: Session, body: AttachFileRequest):

@@ -22,3 +22,11 @@ class AttachFileResponse(BaseModel):
     file_id: int
     edition_id: int
     path: str
+
+
+class DeleteFileResponse(BaseModel):
+    status: str = "deleted"
+    file_id: int
+    edition_id: Optional[int]
+    deleted_disk: bool
+    disk_errors: list[str] = Field(default_factory=list)

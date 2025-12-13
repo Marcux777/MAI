@@ -117,6 +117,10 @@ class MainWindow(QMainWindow):
         self.action_remove_from_collection.triggered.connect(self._remove_selected_from_collection)  # type: ignore[attr-defined]
         toolbar.addAction(self.action_remove_from_collection)
 
+        self.action_delete_selected = QAction("Excluir selecionados", self)
+        self.action_delete_selected.triggered.connect(self._delete_selected)  # type: ignore[attr-defined]
+        toolbar.addAction(self.action_delete_selected)
+
         toolbar.addSeparator()
 
         refresh_action = QAction("Recarregar", self)
@@ -211,6 +215,8 @@ class MainWindow(QMainWindow):
         has_selection = bool(self.library_page.selected_edition_ids())
         self.action_add_to_collection.setEnabled(has_collection_target and has_selection)
         self.action_remove_from_collection.setEnabled(has_collection_target and has_selection)
+        if hasattr(self, "action_delete_selected"):
+            self.action_delete_selected.setEnabled(has_selection)
 
     def _add_selected_to_collection(self) -> None:
         collection_id, unfiled = self.collection_tree.current_filter()
@@ -245,3 +251,42 @@ class MainWindow(QMainWindow):
             return
         self.collection_tree.refresh(select_collection_id=collection_id)
         self.library_page.refresh()
+
+    def _delete_selected(self) -> None:
+        edition_ids = self.library_page.selected_edition_ids()
+        if not edition_ids:
+            QMessageBox.information(self, "Excluir", "Selecione um ou mais itens na tabela.")
+            return
+
+        resp = QMessageBox.question(
+            self,
+            "Excluir do catálogo",
+            f"Excluir {len(edition_ids)} item(ns) do catálogo?\n\n"
+            "Isso remove a edição e os registros de arquivos associados (os arquivos no disco não serão apagados).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            result = self.library_service.delete_editions(edition_ids, delete_disk=False)
+        except Exception as exc:
+            QMessageBox.critical(self, "Excluir", str(exc))
+            return
+
+        deleted = int(result.get("deleted") or 0)
+        deleted_files = int(result.get("deleted_files") or 0)
+        errors = result.get("disk_errors") or []
+        if errors:
+            QMessageBox.warning(self, "Excluir", f"Concluído com avisos.\n\n{errors[0]}")
+        else:
+            QMessageBox.information(
+                self,
+                "Excluir",
+                f"Exclusão concluída: {deleted} item(ns), {deleted_files} arquivo(s) removido(s) do catálogo.",
+            )
+
+        self.library_page.refresh()
+        self.collection_tree.refresh()
+        self._populate_detail(None)

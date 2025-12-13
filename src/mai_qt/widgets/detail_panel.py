@@ -236,12 +236,14 @@ class DetailPanel(QWidget):
         self.title_edit = QLineEdit()
         self.subtitle_edit = QLineEdit()
         self.author_edit = QLineEdit()
+        self.tags_edit = QLineEdit()
         self.year_edit = QLineEdit()
         self.language_edit = QLineEdit()
         self.description_edit = QTextEdit()
         form.addRow("Título", self.title_edit)
         form.addRow("Subtítulo", self.subtitle_edit)
         form.addRow("Autores", self.author_edit)
+        form.addRow("Tags", self.tags_edit)
         form.addRow("Ano", self.year_edit)
         form.addRow("Idioma", self.language_edit)
         form.addRow("Descrição", self.description_edit)
@@ -267,6 +269,7 @@ class DetailPanel(QWidget):
             self.title_edit.clear()
             self.subtitle_edit.clear()
             self.author_edit.clear()
+            self.tags_edit.clear()
             self.year_edit.clear()
             self.language_edit.clear()
             self.description_edit.clear()
@@ -280,6 +283,7 @@ class DetailPanel(QWidget):
         self.title_edit.setText(detail.title)
         self.subtitle_edit.setText(detail.subtitle or "")
         self.author_edit.setText(", ".join(detail.authors))
+        self.tags_edit.setText(", ".join(detail.tags))
         self.year_edit.setText(str(detail.year or ""))
         self.language_edit.setText(detail.language or "")
         self.description_edit.setPlainText(detail.description or "")
@@ -299,6 +303,7 @@ class DetailPanel(QWidget):
             title=self.title_edit.text().strip(),
             subtitle=self.subtitle_edit.text().strip(),
             authors=[name.strip() for name in self.author_edit.text().split(",") if name.strip()],
+            tags=[name.strip() for name in self.tags_edit.text().split(",") if name.strip()],
             year=year_value,
             language=self.language_edit.text().strip() or None,
             description=self.description_edit.toPlainText().strip() or None,

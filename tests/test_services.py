@@ -84,6 +84,7 @@ def test_save_detail_updates_metadata(temp_db):
         title="Nova Edição",
         subtitle="Sub",
         authors=["Joana Lima"],
+        tags=["fantasy", "python"],
         year=2022,
         language="en",
         description="Atualizado",
@@ -96,3 +97,24 @@ def test_save_detail_updates_metadata(temp_db):
         assert edition.language == "en"
         work = edition.work
         assert [a.name for a in work.authors] == ["Joana Lima"]
+
+
+def test_save_detail_updates_tags_and_fts(temp_db):
+    edition_id = create_sample_data()
+    service = LibraryService()
+    detail = EditionDetail(
+        edition_id=edition_id,
+        title="Nova Edição",
+        subtitle="",
+        authors=["Joana Lima"],
+        tags=["fantasy"],
+        year=2022,
+        language="pt",
+        description=None,
+    )
+    service.save_detail(detail)
+
+    rows = service.list_books(query="fantasy", limit=50)
+    assert len(rows) == 1
+    assert rows[0].edition_id == edition_id
+    assert "fantasy" in rows[0].tags.lower()

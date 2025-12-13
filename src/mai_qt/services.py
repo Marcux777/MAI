@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from mai.db import models
 from mai.db.session import session_scope
 from mai.db.indexer import upsert_for_edition
+from mai.library import crud as library_crud
 
 
 @dataclass
@@ -40,6 +41,7 @@ class EditionDetail:
     year: Optional[int]
     language: Optional[str]
     description: Optional[str]
+    tags: List[str] = field(default_factory=list)
     identifiers: List['IdentifierRow'] = field(default_factory=list)
     files: List['FileRow'] = field(default_factory=list)
     providers: List['ProviderRow'] = field(default_factory=list)
@@ -242,6 +244,7 @@ class LibraryService:
                 year=edition.pub_year,
                 language=edition.language or (work.language if work else None),
                 description=(work.description if work else None),
+                tags=[t.name for t in edition.tags],
             )
             detail.identifiers = [IdentifierRow(id.scheme, id.value) for id in edition.identifiers]
             detail.files = [
@@ -300,22 +303,44 @@ class LibraryService:
             edition.pub_year = detail.year
             work.title = detail.title or work.title
             work.description = detail.description
-            if detail.language:
-                work.language = detail.language
+            work.language = detail.language or None
 
             # Atualiza autores
-            new_names = [name.strip() for name in detail.authors if name.strip()]
-            work.authors.clear()
-            for name in new_names:
-                author = session.scalar(select(models.Author).where(models.Author.name == name))
-                if not author:
-                    author = models.Author(name=name)
-                    session.add(author)
-                    session.flush()
-                work.authors.append(author)
+            library_crud.set_work_authors(session, work, detail.authors)
+
+            # Atualiza tags
+            library_crud.set_edition_tags(session, edition, detail.tags)
+
+            library_crud.touch_edition(edition)
+            library_crud.touch_work(work)
 
             session.flush()
             upsert_for_edition(session, edition.id)
+
+    def delete_editions(self, edition_ids: List[int], delete_disk: bool = False) -> dict:
+        ids = [int(eid) for eid in edition_ids if int(eid) > 0]
+        if not ids:
+            return {"deleted": 0, "deleted_files": 0, "disk_errors": []}
+
+        deleted = 0
+        deleted_files = 0
+        disk_errors: list[str] = []
+        with session_scope() as session:
+            for edition_id in ids:
+                with session.begin_nested():
+                    try:
+                        result = library_crud.delete_edition(
+                            session,
+                            edition_id,
+                            delete_files=True,
+                            delete_disk=delete_disk,
+                        )
+                    except LookupError:
+                        continue
+                    deleted += 1
+                    deleted_files += result.deleted_files
+                    disk_errors.extend(result.disk_errors)
+        return {"deleted": deleted, "deleted_files": deleted_files, "disk_errors": disk_errors}
 
 
 class CollectionService:

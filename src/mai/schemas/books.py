@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
+from pydantic import Field
 from pydantic import BaseModel
 
 
@@ -45,6 +46,7 @@ class BookListItem(BaseModel):
     authors: List[AuthorSchema]
     files: List[FileSchema]
     identifiers: List[IdentifierSchema]
+    tags: List[str] = Field(default_factory=list)
 
 
 class PaginatedBooks(BaseModel):
@@ -83,5 +85,27 @@ class BookDetail(BaseModel):
     authors: List[AuthorSchema]
     identifiers: List[IdentifierSchema]
     files: List[FileDetailSchema]
+    tags: List[str] = Field(default_factory=list)
     providers: List[ProviderHitSchema]
     history: List[MatchEventSchema]
+
+
+class BookUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    publisher: Optional[str] = None
+    pub_year: Optional[int] = Field(default=None, ge=0)
+    language: Optional[str] = None
+    description: Optional[str] = None
+    authors: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+    identifiers: Optional[List[IdentifierSchema]] = None
+
+
+class BookDeleteResponse(BaseModel):
+    status: str = "deleted"
+    edition_id: int
+    deleted_files: int
+    deleted_disk_files: int
+    deleted_work: bool
+    disk_errors: List[str] = Field(default_factory=list)
