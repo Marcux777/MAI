@@ -8,10 +8,12 @@ from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
+    QLabel,
     QMainWindow,
     QStackedWidget,
     QMessageBox,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -27,6 +29,32 @@ from ..pages.simple_pages import _simple_page
 _SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
 
 
+class _DropOverlay(QWidget):
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+        self.setAcceptDrops(True)
+        self._label = QLabel("Solte o arquivo para importar")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setStyleSheet("color: white; font-size: 22px; font-weight: 600;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addStretch(1)
+        layout.addWidget(self._label)
+        layout.addStretch(1)
+        self.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 140);"
+            "border: 3px dashed rgba(255, 255, 255, 200);"
+            "border-radius: 10px;"
+        )
+
+    def set_count(self, count: int) -> None:
+        if count <= 1:
+            self._label.setText("Solte o arquivo para importar")
+        else:
+            self._label.setText(f"Solte {count} arquivos para importar")
+
+
 class _GlobalFileDropFilter(QObject):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__(window)
@@ -36,6 +64,7 @@ class _GlobalFileDropFilter(QObject):
         if event.type() not in {
             QEvent.Type.DragEnter,
             QEvent.Type.DragMove,
+            QEvent.Type.DragLeave,
             QEvent.Type.Drop,
         }:
             return False
@@ -48,6 +77,10 @@ class _GlobalFileDropFilter(QObject):
 
         if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
             return self._window._accept_drag_event(event)
+
+        if event.type() == QEvent.Type.DragLeave:
+            self._window._hide_drop_overlay()
+            return False
 
         if event.type() == QEvent.Type.Drop:
             return self._window._handle_drop_event(event)
@@ -72,6 +105,8 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setAcceptDrops(True)
         self.setCentralWidget(self.stack)
+        self._drop_overlay = _DropOverlay(self)
+        self._drop_overlay.setGeometry(self.rect())
 
         self.library_page = LibraryPage(self.library_service)
         self.library_page.setAcceptDrops(True)
@@ -190,6 +225,15 @@ class MainWindow(QMainWindow):
         self.collection_tree.refresh()
         self.library_page.refresh()
 
+    def _show_drop_overlay(self, count: int) -> None:  # pragma: no cover - GUI
+        self._drop_overlay.set_count(count)
+        self._drop_overlay.setGeometry(self.rect())
+        self._drop_overlay.raise_()
+        self._drop_overlay.show()
+
+    def _hide_drop_overlay(self) -> None:  # pragma: no cover - GUI
+        self._drop_overlay.hide()
+
     def _on_ingest_completed(self, edition_id: int) -> None:
         on_library = self.stack.currentWidget() == self.library_page
         self._refresh_all()
@@ -278,16 +322,21 @@ class MainWindow(QMainWindow):
         return paths
 
     def _accept_drag_event(self, event) -> bool:  # pragma: no cover - GUI
-        if self._drop_paths_from_event(event):
+        paths = self._drop_paths_from_event(event)
+        if paths:
+            self._show_drop_overlay(len(paths))
             event.setDropAction(Qt.DropAction.CopyAction)
             event.acceptProposedAction()
             return True
+        self._hide_drop_overlay()
         return False
 
     def _handle_drop_event(self, event) -> bool:  # pragma: no cover - GUI
         paths = self._drop_paths_from_event(event)
         if not paths:
+            self._hide_drop_overlay()
             return False
+        self._hide_drop_overlay()
 
         existing = [p for p in paths if Path(p).is_file()]
         missing = [p for p in paths if p not in existing]
@@ -336,10 +385,19 @@ class MainWindow(QMainWindow):
             return
         event.ignore()
 
+    def dragLeaveEvent(self, event) -> None:  # pragma: no cover - GUI
+        self._hide_drop_overlay()
+        event.accept()
+
     def dropEvent(self, event) -> None:  # pragma: no cover - GUI
         if self._handle_drop_event(event):
             return
         event.ignore()
+
+    def resizeEvent(self, event) -> None:  # pragma: no cover - GUI
+        super().resizeEvent(event)
+        if hasattr(self, "_drop_overlay"):
+            self._drop_overlay.setGeometry(self.rect())
 
     def _update_detail(self) -> None:
         selection = self.library_page.table.selectionModel().selectedRows()
