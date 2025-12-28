@@ -126,3 +126,82 @@ def test_save_detail_updates_tags_and_fts(temp_db):
     assert len(rows) == 1
     assert rows[0].edition_id == edition_id
     assert "fantasy" in rows[0].tags.lower()
+
+
+def _create_stats_data():
+    with session_scope() as session:
+        work1 = models.Work(title="Livro A", sort_title="livro_a")
+        work2 = models.Work(title="Livro B", sort_title="livro_b")
+        work3 = models.Work(title="Livro C", sort_title="livro_c")
+        session.add_all([work1, work2, work3])
+        session.flush()
+
+        edition1 = models.Edition(
+            work_id=work1.id,
+            title="Livro A (EPUB)",
+            format="EPUB",
+            pub_year=2001,
+        )
+        edition2 = models.Edition(
+            work_id=work2.id,
+            title="Livro B (PDF)",
+            format="PDF",
+            pub_year=2010,
+        )
+        edition3 = models.Edition(
+            work_id=work3.id,
+            title="Livro C (sem ano)",
+            format=None,
+            pub_year=None,
+        )
+        session.add_all([edition1, edition2, edition3])
+        session.flush()
+
+        author1 = models.Author(name="Autor Um")
+        author2 = models.Author(name="Autor Dois")
+        author3 = models.Author(name="Autor Tres")
+        session.add_all([author1, author2, author3])
+        session.flush()
+        work1.authors.append(author1)
+        work2.authors.append(author2)
+        work3.authors.append(author3)
+
+        tag1 = models.Tag(name="Ficcao")
+        tag2 = models.Tag(name="Fantasia")
+        tag3 = models.Tag(name="Nao-ficcao")
+        session.add_all([tag1, tag2, tag3])
+        session.flush()
+        edition1.tags.extend([tag1, tag2])
+        edition2.tags.append(tag3)
+        edition3.tags.append(tag1)
+
+        session.add_all(
+            [
+                models.File(edition_id=edition1.id, path="/tmp/a.epub", ext="epub", size_bytes=100),
+                models.File(edition_id=edition2.id, path="/tmp/b.pdf", ext="pdf", size_bytes=200),
+                models.File(edition_id=edition3.id, path="/tmp/c.unknown", ext=None, size_bytes=300),
+            ]
+        )
+        session.flush()
+
+
+def test_get_library_stats_returns_counts(temp_db):
+    _create_stats_data()
+    service = LibraryService()
+    stats = service.get_library_stats()
+
+    assert stats.work_count == 3
+    assert stats.edition_count == 3
+    assert stats.file_count == 3
+    assert stats.author_count == 3
+    assert stats.format_count == 2
+    assert stats.missing_year_count == 1
+
+    tag_counts = {item.label: item.count for item in stats.tag_counts}
+    assert tag_counts["Ficcao"] == 2
+    assert tag_counts["Fantasia"] == 1
+    assert tag_counts["Nao-ficcao"] == 1
+
+    year_counts = {item.year: item.count for item in stats.year_counts}
+    assert year_counts[2001] == 1
+    assert year_counts[2010] == 1

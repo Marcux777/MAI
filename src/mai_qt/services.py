@@ -92,6 +92,31 @@ class CollectionRow:
     item_count: int
 
 
+@dataclass
+class CountStat:
+    label: str
+    count: int
+
+
+@dataclass
+class YearStat:
+    year: int
+    count: int
+
+
+@dataclass
+class LibraryStats:
+    work_count: int
+    edition_count: int
+    file_count: int
+    author_count: int
+    format_count: int
+    tag_counts: List[CountStat] = field(default_factory=list)
+    format_counts: List[CountStat] = field(default_factory=list)
+    year_counts: List[YearStat] = field(default_factory=list)
+    missing_year_count: int = 0
+
+
 class BackendClient:
     """Cliente HTTP simples para reutilizar os endpoints FastAPI no app Qt."""
 
@@ -233,6 +258,70 @@ class LibraryService:
                     )
                 )
             return rows
+
+    def get_library_stats(self) -> LibraryStats:
+        with session_scope() as session:
+            work_count = int(session.scalar(select(func.count(models.Work.id))) or 0)
+            edition_count = int(session.scalar(select(func.count(models.Edition.id))) or 0)
+            file_count = int(session.scalar(select(func.count(models.File.id))) or 0)
+            author_count = int(session.scalar(select(func.count(models.Author.id))) or 0)
+
+            fmt_expr = func.upper(models.Edition.format)
+            format_count = int(
+                session.scalar(
+                    select(func.count(func.distinct(fmt_expr))).where(models.Edition.format.is_not(None))
+                )
+                or 0
+            )
+
+            tag_rows = session.execute(
+                select(models.Tag.name, func.count(models.BookTag.edition_id))
+                .join(models.BookTag, models.BookTag.tag_id == models.Tag.id)
+                .group_by(models.Tag.id)
+                .order_by(func.count(models.BookTag.edition_id).desc(), models.Tag.name.asc())
+            ).all()
+            tag_counts = [CountStat(label=name, count=int(count or 0)) for name, count in tag_rows]
+
+            format_rows = session.execute(
+                select(fmt_expr, func.count(models.Edition.id))
+                .group_by(fmt_expr)
+                .order_by(func.count(models.Edition.id).desc())
+            ).all()
+            format_counts = [
+                CountStat(label=(fmt or "Sem formato"), count=int(count or 0))
+                for fmt, count in format_rows
+            ]
+
+            year_rows = session.execute(
+                select(models.Edition.pub_year, func.count(models.Edition.id))
+                .where(models.Edition.pub_year.is_not(None))
+                .group_by(models.Edition.pub_year)
+                .order_by(models.Edition.pub_year.asc())
+            ).all()
+            year_counts = [
+                YearStat(year=int(year), count=int(count or 0))
+                for year, count in year_rows
+                if year is not None
+            ]
+
+            missing_year_count = int(
+                session.scalar(
+                    select(func.count(models.Edition.id)).where(models.Edition.pub_year.is_(None))
+                )
+                or 0
+            )
+
+            return LibraryStats(
+                work_count=work_count,
+                edition_count=edition_count,
+                file_count=file_count,
+                author_count=author_count,
+                format_count=format_count,
+                tag_counts=tag_counts,
+                format_counts=format_counts,
+                year_counts=year_counts,
+                missing_year_count=missing_year_count,
+            )
 
     def get_detail(self, edition_id: int) -> EditionDetail | None:
         with session_scope() as session:
