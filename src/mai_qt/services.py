@@ -44,8 +44,8 @@ class EditionDetail:
     authors: List[str]
     year: Optional[int]
     pages: Optional[int] = None
-    language: Optional[str]
-    description: Optional[str]
+    language: Optional[str] = None
+    description: Optional[str] = None
     rating: Optional[float] = None
     read_status: str = "unread"
     series: Optional[str] = None
