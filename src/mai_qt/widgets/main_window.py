@@ -24,6 +24,7 @@ from ..widgets.collection_tree import CollectionTree
 from ..widgets.organizer_panel import OrganizerPanel
 from ..widgets.review_page import ReviewPage
 from ..widgets.import_panel import ImportPanel
+from ..widgets.metrics_page import MetricsPage
 from ..pages.simple_pages import _simple_page
 
 _SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
@@ -150,7 +151,7 @@ class MainWindow(QMainWindow):
         self.import_page.upload_error.connect(self._on_upload_error)  # type: ignore[attr-defined]
         self.import_page.upload_finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
         self.tasks_page = _simple_page("Tarefas", "Monitoramento das filas de processamento.")
-        self.metrics_page = _simple_page("Métricas", "Indicadores-chave do pipeline.")
+        self.metrics_page = MetricsPage(self.library_service)
         self.settings_page = _simple_page("Configurações", "Preferências locais e provedores.")
         for page in [self.tasks_page, self.metrics_page, self.settings_page]:
             page.setAcceptDrops(True)
@@ -247,6 +248,8 @@ class MainWindow(QMainWindow):
     def _refresh_all(self) -> None:
         self.collection_tree.refresh()
         self.library_page.refresh()
+        if hasattr(self, "metrics_page"):
+            self.metrics_page.refresh()
 
     def _show_drop_overlay(self, count: int) -> None:  # pragma: no cover - GUI
         self._drop_overlay.set_count(count)
@@ -460,6 +463,8 @@ class MainWindow(QMainWindow):
             return
         self.detail_panel.update_status("Metadados salvos.")
         self.library_page.refresh()
+        if hasattr(self, "metrics_page"):
+            self.metrics_page.refresh()
 
     def _fetch_detail(self) -> None:
         if not self.current_detail:
@@ -480,6 +485,8 @@ class MainWindow(QMainWindow):
             f"Consulta concluída. Top score: {top:.2f} — {'Aplicado' if auto else 'Disponível para revisão'}.",
         )
         self.library_page.refresh()
+        if hasattr(self, "metrics_page"):
+            self.metrics_page.refresh()
         detail = self.library_service.get_detail(edition_id)
         self.detail_panel.set_detail(detail)
 
@@ -570,3 +577,5 @@ class MainWindow(QMainWindow):
         self.library_page.refresh()
         self.collection_tree.refresh()
         self._populate_detail(None)
+        if hasattr(self, "metrics_page"):
+            self.metrics_page.refresh()
