@@ -76,10 +76,22 @@ class Author(Base):
     name: Mapped[str]
     sort_name: Mapped[Optional[str]]
 
+    identifiers: Mapped[List["AuthorIdentifier"]] = relationship(back_populates="author")
     works: Mapped[List[Work]] = relationship(
         secondary="work_author",
         back_populates="authors",
     )
+
+
+class AuthorIdentifier(Base):
+    __tablename__ = "author_identifier"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("author.id", ondelete="CASCADE"))
+    scheme: Mapped[str]
+    value: Mapped[str]
+
+    author: Mapped[Author] = relationship(back_populates="identifiers")
 
 
 class Identifier(Base):
