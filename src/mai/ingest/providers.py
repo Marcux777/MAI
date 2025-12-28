@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Iterable, List, Optional, Sequence
 
 import httpx
 
@@ -17,6 +17,33 @@ class Provider:
         raise NotImplementedError
 
 
+def _as_string_list(value: object | None) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence):
+        items: List[str] = []
+        for entry in value:
+            if isinstance(entry, str):
+                items.append(entry)
+            elif isinstance(entry, dict):
+                name = entry.get("name") or entry.get("label") or entry.get("value")
+                if name:
+                    items.append(str(name))
+        return items
+    return []
+
+
+def _merge_categories(*values: Iterable[str]) -> List[str]:
+    merged: List[str] = []
+    for seq in values:
+        for item in seq:
+            if item:
+                merged.append(str(item))
+    return merged
+
+
 class OpenLibraryProvider(Provider):
     base_url = "https://openlibrary.org"
     slug = "openlibrary"
@@ -28,6 +55,11 @@ class OpenLibraryProvider(Provider):
         if not docs:
             return None
         doc = docs[0]
+        categories = _merge_categories(
+            _as_string_list(doc.get("subject")),
+            _as_string_list(doc.get("subject_facet")),
+            _as_string_list(doc.get("subject_key")),
+        )
         return Candidate(
             source="openlibrary",
             title=doc.get("title"),
@@ -41,6 +73,7 @@ class OpenLibraryProvider(Provider):
             },
             cover_url=f"https://covers.openlibrary.org/b/isbn/{isbn13}-L.jpg",
             payload=doc,
+            categories=categories,
         )
 
     def search(self, query: str) -> List[Candidate]:
@@ -48,6 +81,11 @@ class OpenLibraryProvider(Provider):
         resp.raise_for_status()
         hits: List[Candidate] = []
         for doc in resp.json().get("docs", [])[:5]:
+            categories = _merge_categories(
+                _as_string_list(doc.get("subject")),
+                _as_string_list(doc.get("subject_facet")),
+                _as_string_list(doc.get("subject_key")),
+            )
             hits.append(
                 Candidate(
                     source="openlibrary",
@@ -62,6 +100,7 @@ class OpenLibraryProvider(Provider):
                     },
                     cover_url=None,
                     payload=doc,
+                    categories=categories,
                 )
             )
         return hits
@@ -98,6 +137,7 @@ class GoogleBooksProvider(Provider):
             ids={"GBID": item.get("id"), "ISBN13": isbn13},
             cover_url=(info.get("imageLinks") or {}).get("thumbnail"),
             payload=item,
+            categories=_as_string_list(info.get("categories")),
         )
 
     def search(self, query: str) -> List[Candidate]:
@@ -116,6 +156,7 @@ class GoogleBooksProvider(Provider):
                     ids={"GBID": item.get("id")},
                     cover_url=(info.get("imageLinks") or {}).get("thumbnail"),
                     payload=item,
+                    categories=_as_string_list(info.get("categories")),
                 )
             )
         return hits
@@ -178,6 +219,12 @@ class BookBrainzProvider(Provider):
             publisher = publisher_set[0].get("name")
         year = _year_from_date(entity.get("publicationDate") or entity.get("firstPublicationDate"))
         language = alias.get("language") if isinstance(alias, dict) else None
+        categories = _merge_categories(
+            _as_string_list(entity.get("genres")),
+            _as_string_list(entity.get("tags")),
+            _as_string_list(entity.get("subjects")),
+            _as_string_list(entity.get("subject")),
+        )
         return Candidate(
             source="bookbrainz",
             title=title,
@@ -188,6 +235,7 @@ class BookBrainzProvider(Provider):
             ids=ids,
             cover_url=None,
             payload=entity,
+            categories=categories,
         )
 
 
