@@ -119,9 +119,12 @@ def serialize_book(edition: models.Edition) -> BookListItem:
         subtitle=edition.subtitle,
         publisher=edition.publisher,
         pub_year=edition.pub_year,
+        pages=edition.pages,
         language=edition.language,
         format=edition.format,
         cover_url=edition.cover_url,
+        rating=edition.rating,
+        read_status=edition.read_status,
     )
 
     return BookListItem(
@@ -211,9 +214,12 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         subtitle=edition.subtitle,
         publisher=edition.publisher,
         pub_year=edition.pub_year,
+        pages=edition.pages,
         language=edition.language,
         format=edition.format,
         cover_url=edition.cover_url,
+        rating=edition.rating,
+        read_status=edition.read_status,
     )
     return BookDetail(
         edition=edition_schema,
@@ -270,6 +276,12 @@ def update_book(edition_id: int, body: BookUpdateRequest, db: Session = Depends(
 
     if "pub_year" in fields:
         edition.pub_year = body.pub_year
+
+    if "rating" in fields:
+        edition.rating = body.rating
+
+    if "read_status" in fields:
+        edition.read_status = body.read_status or "unread"
 
     if "language" in fields:
         language = (body.language or "").strip() or None

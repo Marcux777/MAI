@@ -241,6 +241,13 @@ class DetailPanel(QWidget):
         self.tags_edit = QLineEdit()
         self.year_edit = QLineEdit()
         self.language_edit = QLineEdit()
+        self.read_status_combo = QComboBox()
+        self.read_status_combo.addItem("Não lido", "unread")
+        self.read_status_combo.addItem("Lido", "read")
+        self.rating_combo = QComboBox()
+        self.rating_combo.addItem("Sem nota", None)
+        for value in range(0, 6):
+            self.rating_combo.addItem(str(value), float(value))
         self.description_edit = QTextEdit()
         form.addRow("Título", self.title_edit)
         form.addRow("Subtítulo", self.subtitle_edit)
@@ -250,6 +257,8 @@ class DetailPanel(QWidget):
         form.addRow("Tags", self.tags_edit)
         form.addRow("Ano", self.year_edit)
         form.addRow("Idioma", self.language_edit)
+        form.addRow("Status leitura", self.read_status_combo)
+        form.addRow("Nota", self.rating_combo)
         form.addRow("Descrição", self.description_edit)
         button_row = QHBoxLayout()
         self.save_btn = QPushButton("Salvar")
@@ -279,6 +288,8 @@ class DetailPanel(QWidget):
             self.year_edit.clear()
             self.language_edit.clear()
             self.description_edit.clear()
+            self.read_status_combo.setCurrentIndex(0)
+            self.rating_combo.setCurrentIndex(0)
             self.status.setText("Selecione um item para editar.")
             self.save_btn.setEnabled(False)
             self.fetch_btn.setEnabled(False)
@@ -294,6 +305,10 @@ class DetailPanel(QWidget):
         self.tags_edit.setText(", ".join(detail.tags))
         self.year_edit.setText(str(detail.year or ""))
         self.language_edit.setText(detail.language or "")
+        status_index = self.read_status_combo.findData(detail.read_status)
+        self.read_status_combo.setCurrentIndex(status_index if status_index >= 0 else 0)
+        rating_index = self.rating_combo.findData(detail.rating)
+        self.rating_combo.setCurrentIndex(rating_index if rating_index >= 0 else 0)
         self.description_edit.setPlainText(detail.description or "")
         self.status.setText("Edite os campos e clique em Salvar.")
         self._populate_tables(detail)
@@ -325,6 +340,8 @@ class DetailPanel(QWidget):
             year=year_value,
             language=self.language_edit.text().strip() or None,
             description=self.description_edit.toPlainText().strip() or None,
+            read_status=(self.read_status_combo.currentData() or "unread"),
+            rating=self.rating_combo.currentData(),
         )
         self._on_save(detail)
 

@@ -51,6 +51,8 @@ class Edition(Base):
     language: Mapped[Optional[str]]
     cover_path: Mapped[Optional[str]]
     cover_url: Mapped[Optional[str]]
+    rating: Mapped[Optional[float]] = mapped_column(Float)
+    read_status: Mapped[str] = mapped_column(String, default="unread")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 

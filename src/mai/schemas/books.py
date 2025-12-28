@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from pydantic import Field
 from pydantic import BaseModel
@@ -38,6 +38,8 @@ class EditionSchema(BaseModel):
     language: Optional[str]
     format: Optional[str]
     cover_url: Optional[str]
+    rating: Optional[float] = Field(default=None, ge=0, le=5)
+    read_status: str
 
 
 class BookListItem(BaseModel):
@@ -104,6 +106,8 @@ class BookUpdateRequest(BaseModel):
     pub_year: Optional[int] = Field(default=None, ge=0)
     language: Optional[str] = None
     description: Optional[str] = None
+    rating: Optional[float] = Field(default=None, ge=0, le=5)
+    read_status: Optional[Literal["unread", "read"]] = None
     authors: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     identifiers: Optional[List[IdentifierSchema]] = None

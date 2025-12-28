@@ -16,10 +16,26 @@ def apply_schema(schema_path: Path | None = None) -> None:
     raw = engine.raw_connection()
     try:
         raw.executescript(sql)
+        _ensure_edition_columns(raw)
         raw.commit()
     finally:
         raw.close()
     logger.info("Schema aplicado a %s", settings.db_path)
+
+
+def _ensure_edition_columns(raw) -> None:
+    cursor = raw.execute("PRAGMA table_info(edition)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "rating" not in existing:
+        raw.execute(
+            "ALTER TABLE edition ADD COLUMN rating REAL "
+            "CHECK (rating IS NULL OR (rating >= 0 AND rating <= 5))"
+        )
+    if "read_status" not in existing:
+        raw.execute(
+            "ALTER TABLE edition ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread' "
+            "CHECK (read_status IN ('unread', 'read'))"
+        )
 
 
 def main() -> None:
