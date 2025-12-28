@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QTableView,
     QVBoxLayout,
     QWidget,
+    QApplication,
 )
 
 from ..library_model import LibraryTableModel
@@ -84,6 +85,12 @@ class LibraryPage(QWidget):
         self.view_grid_btn = QPushButton("Grade")
         self.view_grid_btn.setCheckable(True)
         self.view_grid_btn.clicked.connect(lambda: self._set_view_mode("grid"))  # type: ignore[attr-defined]
+
+        style = QApplication.style()
+        if style:
+            self.refresh_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+            self.view_list_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogDetailedView))
+            self.view_grid_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogListView))
 
         self.info = QLabel("")
         self.info.setObjectName("infoLabel")

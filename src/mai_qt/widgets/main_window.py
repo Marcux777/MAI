@@ -251,27 +251,38 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("MAI", self)
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
+        style = self.style()
 
         self.action_new_collection = QAction("Nova coleção", self)
         self.action_new_collection.triggered.connect(lambda: self.collection_tree.prompt_new_collection())  # type: ignore[attr-defined]
+        if style:
+            self.action_new_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogNewFolder))
         toolbar.addAction(self.action_new_collection)
 
         self.action_add_to_collection = QAction("Adicionar selecionados", self)
         self.action_add_to_collection.triggered.connect(self._add_selected_to_collection)  # type: ignore[attr-defined]
+        if style:
+            self.action_add_to_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogYesButton))
         toolbar.addAction(self.action_add_to_collection)
 
         self.action_remove_from_collection = QAction("Remover selecionados", self)
         self.action_remove_from_collection.triggered.connect(self._remove_selected_from_collection)  # type: ignore[attr-defined]
+        if style:
+            self.action_remove_from_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogCancelButton))
         toolbar.addAction(self.action_remove_from_collection)
 
         self.action_delete_selected = QAction("Excluir selecionados", self)
         self.action_delete_selected.triggered.connect(self._delete_selected)  # type: ignore[attr-defined]
+        if style:
+            self.action_delete_selected.setIcon(style.standardIcon(style.StandardPixmap.SP_TrashIcon))
         toolbar.addAction(self.action_delete_selected)
 
         toolbar.addSeparator()
 
         refresh_action = QAction("Recarregar", self)
         refresh_action.triggered.connect(self._refresh_all)  # type: ignore[attr-defined]
+        if style:
+            refresh_action.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
         toolbar.addAction(refresh_action)
 
         self._update_collection_actions()
@@ -500,6 +511,7 @@ class MainWindow(QMainWindow):
             self.detail_panel.update_status("Erro ao salvar metadados.")
             return
         self.detail_panel.update_status("Metadados salvos.")
+        self.statusBar().showMessage("Metadados salvos com sucesso.", 4000)
         self.library_page.refresh()
         if hasattr(self, "metrics_page"):
             self.metrics_page.refresh()

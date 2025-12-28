@@ -4,9 +4,10 @@ import os
 from dataclasses import dataclass
 from typing import Callable
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QTabWidget,
     QComboBox,
     QFormLayout,
@@ -269,6 +270,10 @@ class DetailPanel(QWidget):
         self.save_btn.clicked.connect(self._emit_save)
         self.fetch_btn = QPushButton("Enriquecer metadados")
         self.fetch_btn.clicked.connect(self._emit_fetch)
+        style = QApplication.style()
+        if style:
+            self.save_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogSaveButton))
+            self.fetch_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
         button_row.addWidget(self.save_btn)
         button_row.addWidget(self.fetch_btn)
         form.addRow(button_row)
@@ -364,6 +369,8 @@ class DetailPanel(QWidget):
 
     def update_status(self, message: str) -> None:
         self.status.setText(message)
+        if message:
+            QTimer.singleShot(4000, lambda: self.status.setText(""))
 
     def _on_tab_changed(self, index: int) -> None:
         self.preview_tab.set_active(index == self.preview_index)

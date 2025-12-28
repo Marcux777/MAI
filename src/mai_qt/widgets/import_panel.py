@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QMessageBox,
+    QApplication,
+    QProgressBar,
 )
 
 from ..services import BackendClient
@@ -74,6 +76,9 @@ class ImportPanel(QWidget):
         self.paths_input.setPlaceholderText("Caminhos separados por ponto e vírgula ou deixe vazio para usar os paths configurados")
         self.log = QTextEdit()
         self.log.setReadOnly(True)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setVisible(False)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -100,6 +105,13 @@ class ImportPanel(QWidget):
         watch_btn.clicked.connect(self.start_watcher)
         stop_btn = QPushButton("Parar Watcher")
         stop_btn.clicked.connect(self.stop_watcher)
+        style = QApplication.style()
+        if style:
+            self.select_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogOpenButton))
+            self.upload_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_ArrowUp))
+            scan_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogContentsView))
+            watch_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaPlay))
+            stop_btn.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaStop))
         buttons.addWidget(scan_btn)
         buttons.addWidget(watch_btn)
         buttons.addWidget(stop_btn)
@@ -107,6 +119,7 @@ class ImportPanel(QWidget):
         layout.addLayout(buttons)
 
         layout.addWidget(QLabel("Log"))
+        layout.addWidget(self.progress)
         layout.addWidget(self.log)
 
     def dragEnterEvent(self, event) -> None:  # pragma: no cover - GUI
@@ -172,6 +185,7 @@ class ImportPanel(QWidget):
         self._batch_failed = 0
         self.select_btn.setEnabled(False)
         self.upload_btn.setEnabled(False)
+        self.progress.setVisible(True)
         start_msg = f"Iniciando upload: {', '.join(Path(p).name for p in candidates)}"
         self.log.append(start_msg)
         self.upload_log.emit(start_msg)
@@ -200,6 +214,7 @@ class ImportPanel(QWidget):
         self._upload_running = False
         self.select_btn.setEnabled(True)
         self.upload_btn.setEnabled(True)
+        self.progress.setVisible(False)
         summary = f"Upload finalizado: {self._batch_ok} ok, {self._batch_failed} falha(s)."
         self.log.append(summary)
         self.upload_log.emit(summary)
