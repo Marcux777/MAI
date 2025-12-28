@@ -11,6 +11,7 @@ class LocalMetadata:
     identifiers: List[str] = field(default_factory=list)
     language: Optional[str] = None
     year: Optional[int] = None
+    pages: Optional[int] = None
 
 
 @dataclass
@@ -24,6 +25,8 @@ class Candidate:
     ids: Dict[str, Optional[str]]
     cover_url: Optional[str]
     payload: Dict
+    pages: Optional[int] = None
+    author_ids: Dict[str, Dict[str, str]] = field(default_factory=dict)
     categories: List[str] = field(default_factory=list)
     series: Optional[str] = None
     series_position: Optional[float] = None

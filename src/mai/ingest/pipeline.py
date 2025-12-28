@@ -81,6 +81,33 @@ def _set_edition_tags(session, edition: models.Edition, tag_names: Iterable[str]
     edition.tags = tags
 
 
+def _set_author_identifiers(
+    session,
+    author: models.Author,
+    identifiers: dict[str, str],
+) -> None:
+    for scheme, value in identifiers.items():
+        scheme_clean = (scheme or "").strip().upper()
+        value_clean = (value or "").strip()
+        if not scheme_clean or not value_clean:
+            continue
+        exists = session.scalar(
+            select(models.AuthorIdentifier).where(
+                models.AuthorIdentifier.scheme == scheme_clean,
+                models.AuthorIdentifier.value == value_clean,
+            )
+        )
+        if exists:
+            continue
+        session.add(
+            models.AuthorIdentifier(
+                author_id=author.id,
+                scheme=scheme_clean,
+                value=value_clean,
+            )
+        )
+
+
 def _merge_tags_from_categories(session, edition: models.Edition, categories: Iterable[str]) -> None:
     normalized = _normalize_categories(categories)
     if not normalized:
@@ -238,6 +265,11 @@ def persist(
     title = candidate.title if candidate and candidate.title else local.title or path.stem
     sort_title = normalize(title)
     language = (candidate.language if candidate and candidate.language else local.language)
+    pages: int | None = None
+    if candidate and candidate.pages:
+        pages = int(candidate.pages)
+    elif local.pages:
+        pages = int(local.pages)
 
     work = session.scalar(select(models.Work).where(models.Work.sort_title == sort_title))
     if not work:
@@ -247,6 +279,7 @@ def persist(
 
     authors = candidate.authors if candidate and candidate.authors else (local.authors or ["Desconhecido"])
     author_objs = []
+    author_map: dict[str, models.Author] = {}
     for author_name in authors:
         author = session.scalar(select(models.Author).where(models.Author.name == author_name))
         if not author:
@@ -254,8 +287,16 @@ def persist(
             session.add(author)
             session.flush()
         author_objs.append(author)
+        author_map[author_name] = author
         if author not in work.authors:
             work.authors.append(author)
+
+    if candidate and candidate.author_ids:
+        for name, ids in candidate.author_ids.items():
+            author = author_map.get(name)
+            if not author:
+                continue
+            _set_author_identifiers(session, author, ids)
 
     edition = models.Edition(
         work_id=work.id,
@@ -263,6 +304,7 @@ def persist(
         subtitle=None,
         publisher=candidate.publisher if candidate else None,
         pub_year=candidate.year if candidate else local.year,
+        pages=pages,
         format=path.suffix.lstrip("."),
         language=language,
         cover_url=candidate.cover_url if candidate else None,
@@ -467,9 +509,11 @@ def record_identification(
                 "score": round(item["score"], 4),
                 "title": candidate.title,
                 "authors": candidate.authors,
+                "author_ids": candidate.author_ids,
                 "ids": candidate.ids,
                 "publisher": candidate.publisher,
                 "year": candidate.year,
+                "pages": candidate.pages,
                 "language": candidate.language,
                 "cover_url": candidate.cover_url,
                 "categories": candidate.categories,
@@ -527,6 +571,7 @@ def build_local_metadata_from_edition(edition: models.Edition) -> LocalMetadata:
         identifiers=identifiers,
         language=language,
         year=edition.pub_year,
+        pages=edition.pages,
     )
 
 
@@ -563,6 +608,7 @@ def apply_candidate_to_edition(session, edition: models.Edition, candidate: Cand
 
     if candidate.authors:
         work.authors.clear()
+        author_map: dict[str, models.Author] = {}
         for name in candidate.authors:
             author = session.scalar(select(models.Author).where(models.Author.name == name))
             if not author:
@@ -570,6 +616,13 @@ def apply_candidate_to_edition(session, edition: models.Edition, candidate: Cand
                 session.add(author)
                 session.flush()
             work.authors.append(author)
+            author_map[name] = author
+        if candidate.author_ids:
+            for name, ids in candidate.author_ids.items():
+                author = author_map.get(name)
+                if not author:
+                    continue
+                _set_author_identifiers(session, author, ids)
 
     if candidate.categories:
         _merge_tags_from_categories(session, edition, candidate.categories)
@@ -581,6 +634,8 @@ def apply_candidate_to_edition(session, edition: models.Edition, candidate: Cand
             candidate.series_position,
             replace=False,
         )
+    if candidate.pages and (edition.pages is None or edition.pages <= 0):
+        edition.pages = int(candidate.pages)
 
     session.flush()
 
@@ -638,11 +693,13 @@ def deserialize_ranked_candidates(payload_json: str) -> List[dict]:
             title=item.get("title"),
             authors=item.get("authors") or [],
             year=item.get("year"),
+            pages=item.get("pages"),
             publisher=item.get("publisher"),
             language=item.get("language"),
             ids=item.get("ids") or {},
             cover_url=item.get("cover_url"),
             payload=item.get("payload") or {},
+            author_ids=item.get("author_ids") or {},
             categories=item.get("categories") or [],
             series=item.get("series"),
             series_position=item.get("series_position"),

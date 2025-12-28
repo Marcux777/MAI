@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS author (
   sort_name  TEXT
 );
 
+-- Identificadores externos de autores (MusicBrainz/etc)
+CREATE TABLE IF NOT EXISTS author_identifier (
+  id         INTEGER PRIMARY KEY,
+  author_id  INTEGER NOT NULL REFERENCES author(id) ON DELETE CASCADE,
+  scheme     TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  UNIQUE (scheme, value)
+);
+
 CREATE TABLE IF NOT EXISTS work_author (
   work_id    INTEGER NOT NULL REFERENCES work(id) ON DELETE CASCADE,
   author_id  INTEGER NOT NULL REFERENCES author(id) ON DELETE CASCADE,
