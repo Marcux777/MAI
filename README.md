@@ -5,7 +5,7 @@ MAI é um catálogo local-first focado em identificação confiável, busca ráp
 ## Objetivos principais
 - Ingestão autônoma de arquivos (EPUB/PDF/MOBI) com impressão digital SHA-256.
 - Identificação e validação robusta (ISBN10/13, título/autor normalizados, score de confiança).
-- Enriquecimento incremental a partir de múltiplas fontes abertas (Open Library, Google Books, BookBrainz; Goodreads somente para quem possui chave legada).
+- Enriquecimento incremental a partir de fontes abertas (Open Library, Google Books, BookBrainz).
 - Organização física dos arquivos segundo convenções configuráveis.
 - Busca em tempo real via SQLite FTS5, com filtros por autor, idioma, tag e ano.
 
@@ -14,7 +14,7 @@ MAI é um catálogo local-first focado em identificação confiável, busca ráp
 |-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
 | Watcher + Import  | `watchdog` monitora diretórios, dispara extração de metadados (EbookLib, PyMuPDF) e calcula `sha256`.                                            |
 | Identificador     | Normaliza título/autor, valida ISBN, gera score de matching e decide quando consultar provedores.                                               |
-| Plugins (Providers)| Open Library, Google Books, BookBrainz, Goodreads legado, ISBNdb opcional. Interface unificada (`search`, `get_by_isbn`).                        |
+| Plugins (Providers)| Open Library, Google Books, BookBrainz. Interface unificada (`search`, `get_by_isbn`).                                                            |
 | Enriquecimento    | Consolida dados retornados, aplica regras de priorização e persiste `payload_json` no cache (`provider_hit`).                                    |
 | Banco + Busca     | SQLite normalizado + tabela virtual `search` (FTS5) para consulta prefixada/stemming.                                                            |
 | Organizador       | Move arquivos para árvore canônica `Autor/Serie/NN - Título (Ano) [ISBN][Formato].ext`.                                                         |
@@ -40,11 +40,9 @@ MAI é um catálogo local-first focado em identificação confiável, busca ráp
 - `provider_hit` armazena o payload bruto e um score para auditoria/caching (30 dias recomendado).
 
 ## Plugins de metadados
-- **Open Library**: Search/Works/Editions + Covers; evite bulk fora dos dumps mensais.
-- **Google Books**: endpoint `volumes` (busca e ISBN); thumbnails em `imageLinks`.
+- **Open Library**: Search/Works/Editions + Covers; ratings públicos por Work.
+- **Google Books**: endpoint `volumes` (busca e ISBN); thumbnails em `imageLinks` e ratings quando disponíveis.
 - **BookBrainz**: dados complementares de obras/séries.
-- **Goodreads**: apenas para quem possui chave pré-2020 ou para import via CSV oficial.
-- **ISBNdb**: opcional (pago) para informações comerciais.
 Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`, `ids`, `cover_url`) para simplificar o reconciliador.
 
 ## API Local
@@ -66,7 +64,7 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 ## Roadmap sugerido
 1. **Fase A (MVP)**: scanner + extração EPUB/PDF, validação ISBN, plugins Open Library/Google Books, SQLite + FTS5, UI mínima, renomeação automática.
 2. **Fase B**: painel de revisão/manual merge, cache inteligente, OPDS, thumbnails locais, filas de tarefas assíncronas.
-3. **Fase C**: import Goodreads CSV, BookBrainz/ISBNdb, suporte a séries/tags inteligentes, internacionalização, analytics.
+3. **Fase C**: import de CSVs (sem dependência de Goodreads), suporte a séries/tags inteligentes, internacionalização, analytics.
 
 ## Stack recomendada (Python)
 - FastAPI + Uvicorn

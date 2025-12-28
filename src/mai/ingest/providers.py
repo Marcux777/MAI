@@ -81,7 +81,7 @@ def _normalize_identifier_scheme(raw: str | None) -> Optional[str]:
     if "ISBN10" in cleaned:
         return "ISBN10"
     if "GOODREADS" in cleaned:
-        return "GOODREADS"
+        return None
     if "LIBRARYTHING" in cleaned:
         return "LIBRARYTHING"
     if "MUSICBRAINZ" in cleaned or cleaned == "MBID":
@@ -163,9 +163,6 @@ def _openlibrary_cover_url(ids: dict[str, str]) -> Optional[str]:
     olid = ids.get("OLID")
     if olid:
         return f"https://covers.openlibrary.org/b/olid/{olid}-L.jpg"
-    goodreads = ids.get("GOODREADS")
-    if goodreads:
-        return f"https://covers.openlibrary.org/b/goodreads/{goodreads}-L.jpg"
     librarything = ids.get("LIBRARYTHING")
     if librarything:
         return f"https://covers.openlibrary.org/b/librarything/{librarything}-L.jpg"
@@ -183,7 +180,6 @@ def _extract_openlibrary_ids(doc: dict, *, isbn13: str | None = None) -> dict[st
     _add_identifier(ids, "OLWORK", _normalize_openlibrary_key(doc.get("work_key")))
     _add_identifier(ids, "OLWORK", _normalize_openlibrary_key(doc.get("key")))
 
-    _add_identifier(ids, "GOODREADS", doc.get("id_goodreads"))
     _add_identifier(ids, "LIBRARYTHING", doc.get("id_librarything"))
     _add_identifier(ids, "OCLC", doc.get("oclc"))
     _add_identifier(ids, "LCCN", doc.get("lccn"))
@@ -307,32 +303,36 @@ def _parse_page_count(value: object | None) -> Optional[int]:
     return None
 
 
-def _parse_page_count(value: object | None) -> Optional[int]:
+def _coerce_float(value: object | None) -> Optional[float]:
     if value is None:
         return None
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        pages = int(value)
-        return pages if pages > 0 else None
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_int(value: object | None) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
     if isinstance(value, str):
         digits = "".join(ch for ch in value if ch.isdigit())
         if digits:
-            pages = int(digits)
-            return pages if pages > 0 else None
-        return None
-    if isinstance(value, dict):
-        for key in ("pages", "pageCount", "numberOfPages", "number_of_pages"):
-            parsed = _parse_page_count(value.get(key))
-            if parsed:
-                return parsed
-        return None
-    if isinstance(value, Sequence):
-        for entry in value:
-            parsed = _parse_page_count(entry)
-            if parsed:
-                return parsed
+            return int(digits)
     return None
+
 
 def _parse_series_entry(raw: str) -> tuple[str | None, Optional[float]]:
     text = " ".join((raw or "").strip().split())
@@ -352,6 +352,33 @@ def _parse_series_entry(raw: str) -> tuple[str | None, Optional[float]]:
         return name or None, position
 
     return text, None
+
+
+def fetch_openlibrary_rating(olid: str, *, timeout: float = 8.0) -> tuple[float | None, int | None] | None:
+    if not olid:
+        return None
+    try:
+        resp = httpx.get(f"{OpenLibraryProvider.base_url}/works/{olid}/ratings.json", timeout=timeout)
+    except httpx.HTTPError:
+        return None
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, dict):
+        return None
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    average = _coerce_float(summary.get("average") or summary.get("avg") or data.get("average"))
+    count = _coerce_int(
+        summary.get("count")
+        or summary.get("ratings_count")
+        or summary.get("total")
+        or data.get("count")
+        or data.get("ratings_count")
+    )
+    if average is None and count is None:
+        return None
+    return average, count
 
 
 def _infer_series_from_title(title: str | None) -> tuple[str | None, Optional[float]]:

@@ -27,7 +27,7 @@ Casos principais:
 - Watcher configurável + import manual.
 - Extração de metadados de EPUB/PDF/MOBI.
 - Identificação baseada em ISBN + matching heurístico.
-- Plugins para Open Library, Google Books, BookBrainz (Goodreads apenas via chave legada ou CSV do usuário).
+- Plugins para Open Library, Google Books e BookBrainz (apenas APIs públicas/gratuitas).
 - Banco SQLite normalizado + FTS5.
 - **App desktop nativo Qt (PySide6)**: biblioteca virtualizada, detalhe dockable, revisão, organizer e métricas tudo em uma janela.
 - API REST local apenas para modo desenvolvedor/integrações.
@@ -37,9 +37,9 @@ Casos principais:
 **Excluído / Futuro**
 - Análise ou remoção de DRM.
 - Sincronização em nuvem ou multiusuário distribuído (avaliar pós-v1 se serão bibliotecas independentes por usuário ou compartilhadas com ACL).
-- Compra/consulta a catálogos pagos, exceto via plugin opcional (ISBNdb).
+- Compra/consulta a catálogos pagos fora de escopo nesta fase.
 - Integração direta com Calibre/BibTeX/RIS/Zotero (export/import avançados ficam para pós-v1).
-- Plugins pagos adicionais (ISBN.org, ISBNdb) somente após validar o fluxo básico.
+- Plugins pagos (ISBN.org, ISBNdb) somente após validar o fluxo básico e com decisão explícita.
 
 ## 5. Requisitos Funcionais
 1. **Ingestão**
@@ -86,7 +86,7 @@ Casos principais:
 - **Watcher & Importer** (watchdog + CLI) → publica eventos de ingestão.
 - **Extractor** (EbookLib, PyMuPDF) → fornece `LocalMetadata` + SHA-256.
 - **Identifier & Matcher** (rapidfuzz) → controla consulta a providers e scoring.
-- **Metadata Plugins** (Open Library, Google Books, BookBrainz, Goodreads legado, ISBNdb opcional) → interface unificada (DTO).
+- **Metadata Plugins** (Open Library, Google Books, BookBrainz) → interface unificada (DTO).
 - **Persistence Layer** (SQLAlchemy + SQLite/FTS5) → aplica DDL de `db/schema.sql`.
 - **File Organizer** → renomeia/move, gera thumbnails (Pillow) e sinaliza UI.
 - **App Desktop Qt**: camada de apresentação em PySide6 com `QApplication`, `QMainWindow`, docks, `QTableView` virtualizada e widgets especializados (Revisão, Organizer, Import/Watcher, Tarefas, Métricas, Settings). Comunicação direta com services Python via chamadas internas/sinais Qt, sem HTTP.
@@ -118,17 +118,17 @@ Casos principais:
   3. Integrar revisão e organizer nativos (preview/apply/rollback com progress bar), empacotar com PyInstaller para Windows/Linux/macOS.
 - **Fase B**
   1. Painel de tarefas/watcher com threads Qt, notificações, thumbnails locais.
-  2. OPDS 1.2, BookBrainz plugin, import manual do CSV Goodreads.
+  2. OPDS 1.2, BookBrainz plugin, import manual de CSVs públicos.
   3. Settings avançadas (provedores, templates, caminhos), internacionalização básica e modo Dev/REST habilitável.
 - **Fase C**
-  1. Plugins pagos opcionais (ISBNdb), tags inteligentes, séries enriquecidas.
+  1. Tags inteligentes, séries enriquecidas e integrações gratuitas adicionais.
   2. Fluxo de backup/export e sincronização leve (ex.: export JSON/OPDS incremental).
   3. Automação de testes E2E (pytest-qt/Playwright) e empacotes assinados (AppImage/DMG/MSIX) com atualização automática.
 
 **Timeline estimada**: Fase A (MVP) ~12 semanas (3 sprints de 4 semanas); Fase B adiciona ~8 semanas (2 sprints) após validação beta; Fase C depende de adoção, previsão inicial ~8 semanas extras.
 
 ## 11. Riscos e Mitigações
-- **Goodreads API**: sem novas chaves desde 2020 → só usar se o usuário possuir credenciais legadas ou via import CSV.
+- **Limites de API**: provedores públicos podem mudar quotas/formatos; manter fallback offline.
 - **Limites de API**: Open Library desencoraja bulk; usar dumps para importações massivas e cachear resultados.
 - **Dependências nativas (PyMuPDF/Pillow)**: garantir bibliotecas de SO no Dockerfile (libjpeg, openjp2, etc.).
 - **Arquivos corrompidos/DRM**: marcar erro, não tentar contornar.

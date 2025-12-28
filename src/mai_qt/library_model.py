@@ -7,7 +7,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from .services import BookRow
 
 
-HEADERS = ["Título", "Autores", "Ano", "Idioma", "Tags", "Formato", "Arquivo"]
+HEADERS = ["Título", "Autores", "Ano", "Páginas", "Idioma", "Tags", "Formato", "Arquivo"]
 
 
 class LibraryTableModel(QAbstractTableModel):
@@ -35,10 +35,11 @@ class LibraryTableModel(QAbstractTableModel):
             0: book.title,
             1: book.authors,
             2: book.year or "",
-            3: (book.language or "").upper(),
-            4: book.tags,
-            5: book.fmt or "",
-            6: book.file_path or "",
+            3: book.pages or "",
+            4: (book.language or "").upper(),
+            5: book.tags,
+            6: book.fmt or "",
+            7: book.file_path or "",
         }
         return mapping.get(col, "")
 

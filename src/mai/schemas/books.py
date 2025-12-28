@@ -35,6 +35,7 @@ class EditionSchema(BaseModel):
     subtitle: Optional[str]
     publisher: Optional[str]
     pub_year: Optional[int]
+    pages: Optional[int] = None
     language: Optional[str]
     format: Optional[str]
     cover_url: Optional[str]
@@ -67,6 +68,15 @@ class ProviderHitSchema(BaseModel):
     fetched_at: Optional[datetime]
 
 
+class ExternalRatingSchema(BaseModel):
+    source: str
+    average: Optional[float] = None
+    count: Optional[int] = None
+    scale: Optional[float] = None
+    url: Optional[str] = None
+    fetched_at: Optional[datetime] = None
+
+
 class MatchEventSchema(BaseModel):
     stage: str
     provider: str
@@ -96,6 +106,7 @@ class BookDetail(BaseModel):
     tags: List[str] = Field(default_factory=list)
     series: Optional[SeriesSchema] = None
     providers: List[ProviderHitSchema]
+    external_ratings: List[ExternalRatingSchema] = Field(default_factory=list)
     history: List[MatchEventSchema]
 
 
@@ -104,6 +115,7 @@ class BookUpdateRequest(BaseModel):
     subtitle: Optional[str] = None
     publisher: Optional[str] = None
     pub_year: Optional[int] = Field(default=None, ge=0)
+    pages: Optional[int] = Field(default=None, ge=0)
     language: Optional[str] = None
     description: Optional[str] = None
     rating: Optional[float] = Field(default=None, ge=0, le=5)

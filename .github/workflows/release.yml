@@ -33,7 +33,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
           python - <<'PY' "${tag}" "${version}"
-          import re
+          import ast
           import sys
           import tomllib
           from pathlib import Path
@@ -47,10 +47,25 @@ jobs:
               raise SystemExit(f"Version mismatch: tag {tag} != pyproject.toml {project_version}")
 
           init_text = Path("src/mai/__init__.py").read_text(encoding="utf-8")
-          match = re.search(r'__version__\\s*=\\s*["\\\']([^"\\\']+)["\\\']', init_text)
-          if not match:
+          init_version = None
+          module = ast.parse(init_text)
+          for node in module.body:
+              if isinstance(node, ast.Assign):
+                  for target in node.targets:
+                      if isinstance(target, ast.Name) and target.id == "__version__":
+                          if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                              init_version = node.value.value
+                          elif isinstance(node.value, ast.Str):
+                              init_version = node.value.s
+              if isinstance(node, ast.AnnAssign):
+                  target = node.target
+                  if isinstance(target, ast.Name) and target.id == "__version__":
+                      if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                          init_version = node.value.value
+                      elif isinstance(node.value, ast.Str):
+                          init_version = node.value.s
+          if not init_version:
               raise SystemExit("Could not find __version__ in src/mai/__init__.py")
-          init_version = match.group(1)
           if init_version != version:
               raise SystemExit(f"Version mismatch: tag {tag} != src/mai/__init__.py {init_version}")
 
@@ -78,4 +93,3 @@ jobs:
         with:
           body_path: release_notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
-
