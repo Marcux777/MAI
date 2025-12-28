@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,9 +14,10 @@ from mai.api.dependencies import get_db  # ensures DB ready
 from mai.core.config import get_settings
 from mai.core.logging import logger
 from mai.db import models
-from mai.ingest.pipeline import SUPPORTED_EXTENSIONS, build_providers, ingest_file, ingest_paths
+from mai.ingest.pipeline import SUPPORTED_EXTENSIONS, build_providers, ingest_file
 from mai.ingest.service import start_watcher, stop_watcher
 from mai.schemas.imports import ImportRequest, ImportResponse, UploadResponse, WatchRequest, WatchResponse
+from mai.tasks.queue import TASK_KIND_IMPORT_SCAN, get_task_queue
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -44,13 +45,15 @@ def _sanitize_filename(filename: str | None) -> str:
 
 
 @router.post("/scan", response_model=ImportResponse, status_code=202)
-def scan(payload: ImportRequest, background: BackgroundTasks) -> ImportResponse:
+def scan(payload: ImportRequest) -> ImportResponse:
     settings = get_settings()
     paths = _resolve_paths(payload.paths, settings.watch_paths)
-    providers = build_providers(settings.google_books_key)
-    background.add_task(ingest_paths, paths, providers)
-    logger.info("Importação agendada para %s", paths)
-    return ImportResponse(status="scheduled", paths=[str(p) for p in paths])
+    task_id = get_task_queue().enqueue(
+        TASK_KIND_IMPORT_SCAN,
+        {"paths": [str(p) for p in paths]},
+    )
+    logger.info("Importação enfileirada task_id=%s para %s", task_id, paths)
+    return ImportResponse(status="queued", paths=[str(p) for p in paths], task_id=task_id)
 
 
 @router.post("/watch", response_model=WatchResponse)

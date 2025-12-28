@@ -1,4 +1,4 @@
-from . import auth, books, dashboard, events, files, health, imports, opds, organize, providers, review  # noqa: F401
+from . import auth, books, dashboard, events, files, health, imports, opds, organize, providers, review, social, tasks  # noqa: F401
 
 __all__ = [
     "auth",
@@ -12,4 +12,6 @@ __all__ = [
     "organize",
     "providers",
     "review",
+    "social",
+    "tasks",
 ]

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QCheckBox,
-    QDockWidget,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QMessageBox,
     QToolBar,
+    QSplitter,
     QVBoxLayout,
     QStyle,
     QWidget,
@@ -37,7 +37,8 @@ from ..widgets.organizer_panel import OrganizerPanel
 from ..widgets.review_page import ReviewPage
 from ..widgets.import_panel import ImportPanel
 from ..widgets.metrics_page import MetricsPage
-from ..pages.simple_pages import _simple_page
+from ..widgets.tasks_page import TasksPage
+from ..widgets.settings_page import SettingsPage
 
 _SUPPORTED_DROP_EXTENSIONS = {".pdf", ".epub", ".mobi", ".azw", ".azw3"}
 
@@ -164,6 +165,23 @@ class _BulkEditDialog(QDialog):
         layout.addWidget(buttons)
 
 
+class _InspectorContext(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        self.title = QLabel("Contexto")
+        self.title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.body = QLabel("")
+        self.body.setWordWrap(True)
+        layout.addWidget(self.title)
+        layout.addWidget(self.body)
+        layout.addStretch(1)
+
+    def set_content(self, title: str, body: str) -> None:
+        self.title.setText(title)
+        self.body.setText(body)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -180,21 +198,55 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.stack = QStackedWidget()
         self.stack.setAcceptDrops(True)
+
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("navList")
         self.nav_list.setFrameShape(QFrame.Shape.NoFrame)
         self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.nav_list.setSpacing(2)
-        self.nav_list.setIconSize(QSize(20, 20))
-        self.nav_list.setMinimumWidth(180)
+        self.nav_list.setIconSize(QSize(18, 18))
+
+        self.sidebar_search = QLineEdit()
+        self.sidebar_search.setPlaceholderText("Buscar na biblioteca...")
+
+        self.collection_tree = CollectionTree(self.collection_service)
+        self.collection_tree.setAcceptDrops(True)
+        self.collection_tree.filter_changed.connect(self._on_collection_filter_changed)  # type: ignore[attr-defined]
+
+        self.sidebar = QWidget()
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(12, 12, 12, 12)
+        sidebar_layout.setSpacing(8)
+        sidebar_layout.addWidget(self.sidebar_search)
+
+        library_label = QLabel("Biblioteca")
+        library_label.setStyleSheet("font-size: 12px; font-weight: 600;")
+        sidebar_layout.addWidget(library_label)
+        sidebar_layout.addWidget(self.collection_tree, 1)
+
+        tools_label = QLabel("Ferramentas")
+        tools_label.setStyleSheet("font-size: 12px; font-weight: 600;")
+        sidebar_layout.addWidget(tools_label)
+        sidebar_layout.addWidget(self.nav_list)
+
+        self.inspector_stack = QStackedWidget()
 
         central = QWidget()
         central_layout = QHBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
-        central_layout.addWidget(self.nav_list)
-        central_layout.addWidget(self.stack, 1)
+
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.addWidget(self.sidebar)
+        self.splitter.addWidget(self.stack)
+        self.splitter.addWidget(self.inspector_stack)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
+        self.splitter.setSizes([260, 900, 360])
+
+        central_layout.addWidget(self.splitter)
         self.setCentralWidget(central)
         self._drop_overlay = _DropOverlay(self)
         self._drop_overlay.setGeometry(self.rect())
@@ -203,7 +255,12 @@ class MainWindow(QMainWindow):
         self.library_page.setAcceptDrops(True)
         self.library_page.table.setAcceptDrops(True)
         self.library_page.table.viewport().setAcceptDrops(True)
+        self.library_page.request_upload.connect(self._open_import_dialog)  # type: ignore[attr-defined]
+        self.library_page.request_scan.connect(self._run_import_scan)  # type: ignore[attr-defined]
+        self.library_page.request_watcher.connect(self._start_import_watcher)  # type: ignore[attr-defined]
         self.stack.addWidget(self.library_page)
+        self.sidebar_search.textChanged.connect(self._on_search_changed)  # type: ignore[attr-defined]
+        self.sidebar_search.returnPressed.connect(self._show_library_page)  # type: ignore[attr-defined]
 
         self.review_page = ReviewPage(self.backend)
         self.organizer_page = OrganizerPanel(self.backend)
@@ -217,9 +274,9 @@ class MainWindow(QMainWindow):
         self.import_page.ingested.connect(self._on_ingest_completed)  # type: ignore[attr-defined]
         self.import_page.upload_error.connect(self._on_upload_error)  # type: ignore[attr-defined]
         self.import_page.upload_finished.connect(self._on_upload_finished)  # type: ignore[attr-defined]
-        self.tasks_page = _simple_page("Tarefas", "Monitoramento das filas de processamento.")
+        self.tasks_page = TasksPage(self.backend)
         self.metrics_page = MetricsPage(self.library_service)
-        self.settings_page = _simple_page("Configurações", "Preferências locais e provedores.")
+        self.settings_page = SettingsPage()
         for page in [self.tasks_page, self.metrics_page, self.settings_page]:
             page.setAcceptDrops(True)
 
@@ -233,11 +290,11 @@ class MainWindow(QMainWindow):
         ]:
             self.stack.addWidget(page)
 
+        self._build_inspector()
         self._build_navigation()
-        self._build_collections_dock()
-        self._build_detail_dock()
         self._build_toolbar()
         self._build_shortcuts()
+        self._set_current_page(self.library_page)
 
     def _build_navigation(self) -> None:
         self.nav_items: list[tuple[str, QWidget]] = []
@@ -259,7 +316,9 @@ class MainWindow(QMainWindow):
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)  # type: ignore[attr-defined]
         if self.nav_list.count() > 0:
+            self.nav_list.blockSignals(True)
             self.nav_list.setCurrentRow(0)
+            self.nav_list.blockSignals(False)
 
     def _on_nav_changed(self, index: int) -> None:
         if index < 0:
@@ -269,26 +328,22 @@ class MainWindow(QMainWindow):
             return
         page = item.data(Qt.ItemDataRole.UserRole)
         if page:
-            self.stack.setCurrentWidget(page)
+            self._set_current_page(page)
 
-    def _build_collections_dock(self) -> None:
-        dock = QDockWidget("Biblioteca", self)
-        dock.setAllowedAreas(Qt.LeftDockWidgetArea)
-        self.collection_tree = CollectionTree(self.collection_service)
-        self.collection_tree.setAcceptDrops(True)
-        self.collection_tree.filter_changed.connect(self._on_collection_filter_changed)  # type: ignore[attr-defined]
-        dock.setWidget(self.collection_tree)
-        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
-
-    def _build_detail_dock(self) -> None:
-        dock = QDockWidget("Detalhes", self)
-        dock.setAllowedAreas(Qt.RightDockWidgetArea)
+    def _build_inspector(self) -> None:
         self.detail_panel = DetailPanel()
         self.detail_panel.setAcceptDrops(True)
         self.detail_panel.bind_save(self._save_detail)
         self.detail_panel.bind_fetch(self._fetch_detail)
-        dock.setWidget(self.detail_panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+
+        self.context_panel = _InspectorContext()
+        self.empty_inspector = QWidget()
+
+        self.inspector_stack.addWidget(self.detail_panel)
+        self.inspector_stack.addWidget(self.context_panel)
+        self.inspector_stack.addWidget(self.empty_inspector)
+
+        self.inspector_stack.setCurrentWidget(self.detail_panel)
 
         table = self.library_page.table
         table.selectionModel().selectionChanged.connect(self._update_detail)  # type: ignore[attr-defined]
@@ -296,34 +351,34 @@ class MainWindow(QMainWindow):
         self.library_page.grid.itemSelectionChanged.connect(self._update_collection_actions)  # type: ignore[attr-defined]
 
     def _build_toolbar(self) -> None:
-        toolbar = QToolBar("MAI", self)
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
+        self.toolbar = QToolBar("MAI", self)
+        self.toolbar.setMovable(False)
+        self.addToolBar(self.toolbar)
         style = self.style()
 
-        self.action_new_collection = QAction("Nova coleção", self)
+        self.action_new_collection = QAction("Nova colecao", self)
         self.action_new_collection.triggered.connect(lambda: self.collection_tree.prompt_new_collection())  # type: ignore[attr-defined]
         if style:
             self.action_new_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogNewFolder))
-        toolbar.addAction(self.action_new_collection)
+        self.toolbar.addAction(self.action_new_collection)
 
         self.action_add_to_collection = QAction("Adicionar selecionados", self)
         self.action_add_to_collection.triggered.connect(self._add_selected_to_collection)  # type: ignore[attr-defined]
         if style:
             self.action_add_to_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogYesButton))
-        toolbar.addAction(self.action_add_to_collection)
+        self.toolbar.addAction(self.action_add_to_collection)
 
         self.action_remove_from_collection = QAction("Remover selecionados", self)
         self.action_remove_from_collection.triggered.connect(self._remove_selected_from_collection)  # type: ignore[attr-defined]
         if style:
             self.action_remove_from_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogCancelButton))
-        toolbar.addAction(self.action_remove_from_collection)
+        self.toolbar.addAction(self.action_remove_from_collection)
 
         self.action_bulk_edit = QAction("Editar em lote", self)
         self.action_bulk_edit.triggered.connect(self._open_bulk_edit_dialog)  # type: ignore[attr-defined]
         if style:
             self.action_bulk_edit.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogDetailedView))
-        toolbar.addAction(self.action_bulk_edit)
+        self.toolbar.addAction(self.action_bulk_edit)
 
         self.action_read = QAction("Ler", self)
         self.action_read.triggered.connect(self._open_reader_current)  # type: ignore[attr-defined]
@@ -331,22 +386,177 @@ class MainWindow(QMainWindow):
             self.action_read.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaPlay))
         elif style:
             self.action_read.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogOpenButton))
-        toolbar.addAction(self.action_read)
+        self.toolbar.addAction(self.action_read)
 
         self.action_delete_selected = QAction("Excluir selecionados", self)
         self.action_delete_selected.triggered.connect(self._delete_selected)  # type: ignore[attr-defined]
         if style:
             self.action_delete_selected.setIcon(style.standardIcon(style.StandardPixmap.SP_TrashIcon))
-        toolbar.addAction(self.action_delete_selected)
+        self.toolbar.addAction(self.action_delete_selected)
 
-        toolbar.addSeparator()
+        sep_library = self.toolbar.addSeparator()
 
-        refresh_action = QAction("Recarregar", self)
-        refresh_action.triggered.connect(self._refresh_all)  # type: ignore[attr-defined]
+        self.action_refresh = QAction("Recarregar", self)
+        self.action_refresh.triggered.connect(self._refresh_all)  # type: ignore[attr-defined]
         if style:
-            refresh_action.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
-        toolbar.addAction(refresh_action)
+            self.action_refresh.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+        self.toolbar.addAction(self.action_refresh)
 
+        sep_import = self.toolbar.addSeparator()
+
+        self.action_import_upload = QAction("Importar arquivo", self)
+        self.action_import_upload.triggered.connect(self._open_import_dialog)  # type: ignore[attr-defined]
+        if style:
+            self.action_import_upload.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogOpenButton))
+        self.toolbar.addAction(self.action_import_upload)
+
+        self.action_import_scan = QAction("Executar scan", self)
+        self.action_import_scan.triggered.connect(self._run_import_scan)  # type: ignore[attr-defined]
+        if style:
+            self.action_import_scan.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogContentsView))
+        self.toolbar.addAction(self.action_import_scan)
+
+        self.action_import_watch = QAction("Iniciar watcher", self)
+        self.action_import_watch.triggered.connect(self._start_import_watcher)  # type: ignore[attr-defined]
+        if style:
+            self.action_import_watch.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaPlay))
+        self.toolbar.addAction(self.action_import_watch)
+
+        self.action_import_stop = QAction("Parar watcher", self)
+        self.action_import_stop.triggered.connect(self._stop_import_watcher)  # type: ignore[attr-defined]
+        if style:
+            self.action_import_stop.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaStop))
+        self.toolbar.addAction(self.action_import_stop)
+
+        sep_organizer = self.toolbar.addSeparator()
+
+        self.action_organizer_refresh = QAction("Atualizar manifesto", self)
+        self.action_organizer_refresh.triggered.connect(self.organizer_page.refresh)  # type: ignore[attr-defined]
+        if style:
+            self.action_organizer_refresh.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+        self.toolbar.addAction(self.action_organizer_refresh)
+
+        self.action_organizer_apply = QAction("Aplicar manifesto", self)
+        self.action_organizer_apply.triggered.connect(self.organizer_page.apply_manifest)  # type: ignore[attr-defined]
+        if style:
+            self.action_organizer_apply.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogApplyButton))
+        self.toolbar.addAction(self.action_organizer_apply)
+
+        self.action_organizer_rollback = QAction("Rollback", self)
+        self.action_organizer_rollback.triggered.connect(self.organizer_page.rollback_manifest)  # type: ignore[attr-defined]
+        if style:
+            self.action_organizer_rollback.setIcon(style.standardIcon(style.StandardPixmap.SP_ArrowBack))
+        self.toolbar.addAction(self.action_organizer_rollback)
+
+        sep_review = self.toolbar.addSeparator()
+
+        self.action_review_refresh = QAction("Atualizar revisao", self)
+        self.action_review_refresh.triggered.connect(self.review_page.refresh)  # type: ignore[attr-defined]
+        if style:
+            self.action_review_refresh.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+        self.toolbar.addAction(self.action_review_refresh)
+
+        self.action_review_accept = QAction("Aceitar", self)
+        self.action_review_accept.triggered.connect(self.review_page.accept_selection)  # type: ignore[attr-defined]
+        if style:
+            self.action_review_accept.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogYesButton))
+        self.toolbar.addAction(self.action_review_accept)
+
+        self.action_review_reject = QAction("Rejeitar", self)
+        self.action_review_reject.triggered.connect(self.review_page.reject_selection)  # type: ignore[attr-defined]
+        if style:
+            self.action_review_reject.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogCancelButton))
+        self.toolbar.addAction(self.action_review_reject)
+
+        sep_tasks = self.toolbar.addSeparator()
+
+        self.action_tasks_refresh = QAction("Atualizar tarefas", self)
+        self.action_tasks_refresh.triggered.connect(self.tasks_page.refresh)  # type: ignore[attr-defined]
+        if style:
+            self.action_tasks_refresh.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+        self.toolbar.addAction(self.action_tasks_refresh)
+
+        self.action_metrics_refresh = QAction("Atualizar metricas", self)
+        self.action_metrics_refresh.triggered.connect(self.metrics_page.refresh)  # type: ignore[attr-defined]
+        if style:
+            self.action_metrics_refresh.setIcon(style.standardIcon(style.StandardPixmap.SP_BrowserReload))
+        self.toolbar.addAction(self.action_metrics_refresh)
+
+        self._toolbar_groups = {
+            self.library_page: [
+                self.action_new_collection,
+                self.action_add_to_collection,
+                self.action_remove_from_collection,
+                self.action_bulk_edit,
+                self.action_read,
+                self.action_delete_selected,
+                sep_library,
+                self.action_refresh,
+            ],
+            self.import_page: [
+                self.action_import_upload,
+                self.action_import_scan,
+                self.action_import_watch,
+                self.action_import_stop,
+                sep_import,
+                self.action_refresh,
+            ],
+            self.organizer_page: [
+                self.action_organizer_refresh,
+                self.action_organizer_apply,
+                self.action_organizer_rollback,
+                sep_organizer,
+                self.action_refresh,
+            ],
+            self.review_page: [
+                self.action_review_refresh,
+                self.action_review_accept,
+                self.action_review_reject,
+                sep_review,
+                self.action_refresh,
+            ],
+            self.tasks_page: [
+                self.action_tasks_refresh,
+                sep_tasks,
+                self.action_refresh,
+            ],
+            self.metrics_page: [
+                self.action_metrics_refresh,
+                self.action_refresh,
+            ],
+            self.settings_page: [
+                self.action_refresh,
+            ],
+        }
+
+        self._toolbar_all_actions = [
+            self.action_new_collection,
+            self.action_add_to_collection,
+            self.action_remove_from_collection,
+            self.action_bulk_edit,
+            self.action_read,
+            self.action_delete_selected,
+            sep_library,
+            self.action_refresh,
+            self.action_import_upload,
+            self.action_import_scan,
+            self.action_import_watch,
+            self.action_import_stop,
+            sep_import,
+            self.action_organizer_refresh,
+            self.action_organizer_apply,
+            self.action_organizer_rollback,
+            sep_organizer,
+            self.action_review_refresh,
+            self.action_review_accept,
+            self.action_review_reject,
+            sep_review,
+            self.action_tasks_refresh,
+            sep_tasks,
+            self.action_metrics_refresh,
+        ]
+
+        self._update_toolbar_context()
         self._update_collection_actions()
 
     def _build_shortcuts(self) -> None:
@@ -377,6 +587,95 @@ class MainWindow(QMainWindow):
             return
         self._drop_filter = _GlobalFileDropFilter(self)
         app.installEventFilter(self._drop_filter)
+
+    def _on_search_changed(self, text: str) -> None:
+        self.library_page.set_query(text)
+        if self.stack.currentWidget() != self.library_page:
+            self._set_current_page(self.library_page)
+
+    def _show_library_page(self) -> None:
+        self._set_current_page(self.library_page)
+
+    def _set_current_page(self, page: QWidget) -> None:
+        if self.stack.currentWidget() != page:
+            self.stack.setCurrentWidget(page)
+        self._sync_nav_for_page(page)
+        self._apply_inspector_context(page)
+        self._update_toolbar_context()
+        self._update_collection_actions()
+
+    def _sync_nav_for_page(self, page: QWidget) -> None:
+        target_index = None
+        for idx, (_, nav_page) in enumerate(self.nav_items):
+            if nav_page == page:
+                target_index = idx
+                break
+        if target_index is None:
+            return
+        if self.nav_list.currentRow() == target_index:
+            return
+        self.nav_list.blockSignals(True)
+        self.nav_list.setCurrentRow(target_index)
+        self.nav_list.blockSignals(False)
+
+    def _apply_inspector_context(self, page: QWidget) -> None:
+        if page == self.library_page:
+            self.inspector_stack.setVisible(True)
+            self.inspector_stack.setCurrentWidget(self.detail_panel)
+            return
+        if page == self.settings_page:
+            self.inspector_stack.setVisible(False)
+            return
+
+        context_map = {
+            self.import_page: (
+                "Importacao",
+                "Envie arquivos, execute scan ou ative o watcher para ingestao continua.",
+            ),
+            self.organizer_page: (
+                "Organizador",
+                "Aplique manifestos e acompanhe as operacoes de organizacao.",
+            ),
+            self.review_page: (
+                "Revisao",
+                "Aceite ou rejeite candidatos com base no score.",
+            ),
+            self.tasks_page: (
+                "Tarefas",
+                "Acompanhe filas e o progresso das operacoes em background.",
+            ),
+            self.metrics_page: (
+                "Metricas",
+                "Resumo do acervo e distribuicoes por formato, tag e ano.",
+            ),
+        }
+        title, body = context_map.get(page, ("Contexto", "Selecione um modulo."))
+        self.context_panel.set_content(title, body)
+        self.inspector_stack.setVisible(True)
+        self.inspector_stack.setCurrentWidget(self.context_panel)
+
+    def _update_toolbar_context(self) -> None:
+        page = self.stack.currentWidget()
+        allowed = set(self._toolbar_groups.get(page, []))
+        for action in self._toolbar_all_actions:
+            action.setVisible(action in allowed)
+
+    def _open_import_dialog(self) -> None:
+        self._set_current_page(self.import_page)
+        self.import_page.select_file()
+        self.import_page.upload_file()
+
+    def _run_import_scan(self) -> None:
+        self._set_current_page(self.import_page)
+        self.import_page.run_scan()
+
+    def _start_import_watcher(self) -> None:
+        self._set_current_page(self.import_page)
+        self.import_page.start_watcher()
+
+    def _stop_import_watcher(self) -> None:
+        self._set_current_page(self.import_page)
+        self.import_page.stop_watcher()
 
     def _refresh_all(self) -> None:
         self.collection_tree.refresh()
@@ -629,10 +928,22 @@ class MainWindow(QMainWindow):
 
     def _on_collection_filter_changed(self, collection_id: int | None, unfiled_only: bool) -> None:
         self.library_page.set_collection_filter(collection_id=collection_id, unfiled_only=unfiled_only)
+        if self.stack.currentWidget() != self.library_page:
+            self._set_current_page(self.library_page)
         self._update_collection_actions()
 
     def _update_collection_actions(self) -> None:
         if not hasattr(self, "action_add_to_collection"):
+            return
+        if self.stack.currentWidget() != self.library_page:
+            self.action_add_to_collection.setEnabled(False)
+            self.action_remove_from_collection.setEnabled(False)
+            if hasattr(self, "action_bulk_edit"):
+                self.action_bulk_edit.setEnabled(False)
+            if hasattr(self, "action_read"):
+                self.action_read.setEnabled(False)
+            if hasattr(self, "action_delete_selected"):
+                self.action_delete_selected.setEnabled(False)
             return
         collection_id, unfiled = self.collection_tree.current_filter()
         has_collection_target = collection_id is not None and not unfiled

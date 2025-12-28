@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QLineEdit,
     QPushButton,
     QStackedWidget,
     QTableView,
@@ -49,17 +48,23 @@ class _CoverLoadTask(QRunnable):
 
 
 class LibraryPage(QWidget):
+    request_upload = Signal()
+    request_scan = Signal()
+    request_watcher = Signal()
+
     def __init__(self, service: LibraryService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.service = service
         self.model = LibraryTableModel()
         self.collection_id: int | None = None
         self.unfiled_only: bool = False
+        self.query_text = ""
         self._rows = []
         self._cover_cache: dict[str, QPixmap] = {}
         self._cover_pending: set[str] = set()
         self._pool = QThreadPool.globalInstance()
         self._syncing = False
+        self._view_mode = "list"
         self._cover_size = QSize(110, 160)
         self._placeholder = self._build_placeholder()
         self._placeholder_icon = QIcon(self._placeholder)
@@ -73,11 +78,6 @@ class LibraryPage(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
-
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar título, autor ou tag...")
-        self.search_input.returnPressed.connect(self.refresh)  # type: ignore[attr-defined]
-        self.search_input.textChanged.connect(self._schedule_refresh)  # type: ignore[attr-defined]
 
         self.refresh_btn = QPushButton("Atualizar")
         self.refresh_btn.clicked.connect(self.refresh)  # type: ignore[attr-defined]
@@ -100,7 +100,6 @@ class LibraryPage(QWidget):
         self.info = QLabel("")
         self.info.setObjectName("infoLabel")
 
-        header.addWidget(self.search_input)
         header.addWidget(self.refresh_btn)
         header.addWidget(self.view_list_btn)
         header.addWidget(self.view_grid_btn)
@@ -131,6 +130,8 @@ class LibraryPage(QWidget):
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(self.table)
         self.view_stack.addWidget(self.grid)
+        self.empty_state = self._build_empty_state()
+        self.view_stack.addWidget(self.empty_state)
         layout.addWidget(self.view_stack)
 
     def set_collection_filter(self, collection_id: int | None, unfiled_only: bool = False) -> None:
@@ -138,10 +139,13 @@ class LibraryPage(QWidget):
         self.unfiled_only = unfiled_only
         self.refresh()
 
+    def set_query(self, text: str) -> None:
+        self.query_text = (text or "").strip()
+        self._schedule_refresh()
+
     def refresh(self) -> None:
-        query = self.search_input.text().strip()
         rows = self.service.list_books(
-            query=query,
+            query=self.query_text,
             collection_id=self.collection_id,
             unfiled_only=self.unfiled_only,
         )
@@ -150,6 +154,7 @@ class LibraryPage(QWidget):
         self._populate_grid(rows)
         self.info.setText(f"{len(rows)} itens")
         self._search_timer.stop()
+        self._update_empty_state()
 
     def selected_edition_ids(self) -> list[int]:
         if self.view_stack.currentWidget() == self.grid:
@@ -189,6 +194,12 @@ class LibraryPage(QWidget):
         self._search_timer.start()
 
     def _set_view_mode(self, mode: str) -> None:
+        self._view_mode = mode
+        if not self._rows:
+            self.view_stack.setCurrentWidget(self.empty_state)
+            self.view_list_btn.setChecked(mode != "grid")
+            self.view_grid_btn.setChecked(mode == "grid")
+            return
         if mode == "grid":
             self.view_list_btn.setChecked(False)
             self.view_grid_btn.setChecked(True)
@@ -256,6 +267,46 @@ class LibraryPage(QWidget):
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "Sem\ncapa")
         painter.end()
         return pixmap
+
+    def _build_empty_state(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        title = QLabel("Sua biblioteca esta vazia")
+        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        subtitle = QLabel("Importe arquivos ou escaneie uma pasta para comecar.")
+        subtitle.setWordWrap(True)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        buttons = QHBoxLayout()
+        btn_import = QPushButton("Importar arquivos")
+        btn_import.clicked.connect(self.request_upload.emit)  # type: ignore[attr-defined]
+        btn_scan = QPushButton("Executar scan")
+        btn_scan.clicked.connect(self.request_scan.emit)  # type: ignore[attr-defined]
+        btn_watch = QPushButton("Iniciar watcher")
+        btn_watch.clicked.connect(self.request_watcher.emit)  # type: ignore[attr-defined]
+        buttons.addWidget(btn_import)
+        buttons.addWidget(btn_scan)
+        buttons.addWidget(btn_watch)
+
+        hint = QLabel("Arraste e solte arquivos aqui")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addLayout(buttons)
+        layout.addWidget(hint)
+        return widget
+
+    def _update_empty_state(self) -> None:
+        if not self._rows:
+            self.view_stack.setCurrentWidget(self.empty_state)
+            return
+        if self._view_mode == "grid":
+            self.view_stack.setCurrentWidget(self.grid)
+        else:
+            self.view_stack.setCurrentWidget(self.table)
 
     def _on_table_selection(self) -> None:
         if self._syncing:

@@ -55,6 +55,7 @@ Cada plugin retorna um DTO padronizado (`title`, `authors`, `year`, `publisher`,
 - `POST /providers/fetch` (força enriquecimento/reconsulta).
 - `POST /files/attach` (associa arquivo existente a uma edição).
 - `DELETE /files/{file_id}` (remove o registro de arquivo; opcionalmente remove do disco).
+- `POST /social/goodreads/import` (importa CSV do Goodreads e sincroniza leitura/ratings).
 - `GET /opds/**` (opcional, catálogo OPDS 1.2).
 - `POST /import/scan` / `POST|DELETE /import/watch` (já disponíveis na API) para disparar ingestões e controlar o watcher.
 - `POST /organize/preview` (gera manifestos de organização com caminhos sugeridos e permite revisão antes de aplicar).
@@ -105,6 +106,7 @@ Veja `CONTRIBUTING.md` para fluxo de branches/PRs, revisão, CODEOWNERS e config
 - Arquitetura: `docs/ARCHITECTURE.md`
 - Processo (issues/PRs/DoD): `docs/PROCESS.md`
 - Roadmap: `docs/ROADMAP.md`
+- Social sync: `docs/SOCIAL_SYNC.md`
 
 ---
 Para detalhes de implementação veja `db/schema.sql` (DDL completo) e `scripts/ingest_pipeline.py` (esqueleto do scanner + provedores Open Library/Google Books).

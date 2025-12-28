@@ -19,11 +19,14 @@ from mai.api.routes import (
     organize,
     providers,
     review,
+    social,
+    tasks,
 )
 from mai.core.config import get_settings
 from mai.core.logging import configure_logging, logger
 from mai.db.init import apply_schema
 from mai.ingest.service import start_watcher, stop_watcher, watcher_disabled
+from mai.tasks.queue import get_task_queue
 
 
 def create_app() -> FastAPI:
@@ -33,6 +36,8 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         apply_schema()
+        task_queue = get_task_queue()
+        task_queue.start()
         watcher_started = False
         if settings.watch_paths and not watcher_disabled():
             paths = [Path(p).resolve() for p in settings.watch_paths]
@@ -42,6 +47,7 @@ def create_app() -> FastAPI:
         finally:
             if watcher_started:
                 stop_watcher()
+            task_queue.stop()
 
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
@@ -55,6 +61,8 @@ def create_app() -> FastAPI:
     app.include_router(providers.router)
     app.include_router(files.router)
     app.include_router(review.router)
+    app.include_router(social.router)
+    app.include_router(tasks.router)
     app.include_router(opds.router)
 
     static_dir = Path(__file__).resolve().parents[2] / "static"

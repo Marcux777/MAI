@@ -30,7 +30,8 @@ class OrganizePreviewOut(BaseModel):
 class OrganizeActionOut(BaseModel):
     manifest_id: int
     status: str
-    summary: dict
+    summary: dict | None = None
+    task_id: int | None = None
 
 
 class OrganizeApplyIn(BaseModel):
