@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot, QT
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QTabWidget,
     QComboBox,
     QFormLayout,
@@ -76,6 +77,7 @@ class PreviewTab(QWidget):
         self._dirty = False
         self._load_token = 0
         self._pool = QThreadPool.globalInstance()
+        self._reader_dialog: ReaderDialog | None = None
 
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -83,6 +85,10 @@ class PreviewTab(QWidget):
         self.file_box.currentIndexChanged.connect(self._on_file_changed)  # type: ignore[attr-defined]
         header.addWidget(QLabel("Arquivo"))
         header.addWidget(self.file_box, 1)
+
+        self.read_btn = QPushButton("Ler")
+        self.read_btn.clicked.connect(self._open_reader)  # type: ignore[attr-defined]
+        header.addWidget(self.read_btn)
 
         self.open_btn = QPushButton("Abrir no sistema")
         self.open_btn.clicked.connect(self._open_current)  # type: ignore[attr-defined]
@@ -119,6 +125,7 @@ class PreviewTab(QWidget):
 
         if not detail or not detail.files:
             self.open_btn.setEnabled(False)
+            self.read_btn.setEnabled(False)
             self._show_message("Nenhum arquivo associado.")
             return
 
@@ -128,6 +135,7 @@ class PreviewTab(QWidget):
             self.file_box.addItem(label, f.path)
 
         self.open_btn.setEnabled(True)
+        self.read_btn.setEnabled(True)
         self._dirty = True
         if self._active:
             self._dirty = False
@@ -151,6 +159,17 @@ class PreviewTab(QWidget):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _open_reader(self) -> None:
+        path = self._current_path()
+        if not path:
+            return
+        if self._reader_dialog is None:
+            self._reader_dialog = ReaderDialog(self)
+        self._reader_dialog.open_path(path)
+        self._reader_dialog.show()
+        self._reader_dialog.raise_()
+        self._reader_dialog.activateWindow()
+
     def _load_preview(self) -> None:
         path = self._current_path()
         if not path:
@@ -167,6 +186,100 @@ class PreviewTab(QWidget):
             self._load_epub(path)
         else:
             self._show_message(f"Preview não suportado para .{ext}. Use “Abrir no sistema”.")
+
+    def _load_pdf(self, path: str) -> None:
+        error = self.pdf_doc.load(path)
+        if self.pdf_doc.status() != QPdfDocument.Status.Ready:
+            self._show_message(f"Falha ao carregar PDF: {error}")
+            return
+        self.stack.setCurrentWidget(self.pdf_view)
+
+    def _load_epub(self, path: str) -> None:
+        self._load_token += 1
+        token = self._load_token
+        self._show_message("Carregando EPUB…")
+        task = _EpubLoadTask(token=token, path=path)
+        task.signals.done.connect(self._on_epub_done)  # type: ignore[attr-defined]
+        task.signals.failed.connect(self._on_epub_failed)  # type: ignore[attr-defined]
+        self._pool.start(task)
+
+    def _on_epub_done(self, token: int, html: str) -> None:
+        if token != self._load_token:
+            return
+        self.html.setHtml(html)
+        self.stack.setCurrentWidget(self.html)
+
+    def _on_epub_failed(self, token: int, error: str) -> None:
+        if token != self._load_token:
+            return
+        self._show_message(f"Falha ao carregar EPUB: {error}")
+
+    def _show_message(self, text: str) -> None:
+        self.message.setText(text)
+        self.stack.setCurrentWidget(self.message)
+
+
+class ReaderDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Leitor")
+        self.resize(1000, 760)
+        self._pool = QThreadPool.globalInstance()
+        self._load_token = 0
+        self._current_path: str | None = None
+
+        layout = QVBoxLayout(self)
+        header = QHBoxLayout()
+        self.title_label = QLabel("Selecione um arquivo para leitura.")
+        self.title_label.setWordWrap(True)
+        header.addWidget(self.title_label, 1)
+
+        self.external_btn = QPushButton("Abrir no sistema")
+        self.external_btn.clicked.connect(self._open_external)  # type: ignore[attr-defined]
+        header.addWidget(self.external_btn)
+
+        self.close_btn = QPushButton("Fechar")
+        self.close_btn.clicked.connect(self.close)  # type: ignore[attr-defined]
+        header.addWidget(self.close_btn)
+        layout.addLayout(header)
+
+        self.stack = QStackedWidget()
+        self.message = QLabel("Selecione um arquivo para leitura.")
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.stack.addWidget(self.message)
+
+        self.pdf_doc = QPdfDocument(self)
+        self.pdf_view = QPdfView()
+        self.pdf_view.setDocument(self.pdf_doc)
+        self.stack.addWidget(self.pdf_view)
+
+        self.html = QTextBrowser()
+        self.html.setOpenExternalLinks(True)
+        self.stack.addWidget(self.html)
+
+        layout.addWidget(self.stack, 1)
+        self._show_message("Selecione um arquivo para leitura.")
+
+    def open_path(self, path: str) -> None:
+        self._current_path = path
+        self.title_label.setText(os.path.basename(path))
+        if not path or not os.path.exists(path):
+            self._show_message("Arquivo não encontrado no disco.")
+            return
+        fmt = PathLike.guess_fmt(path)
+        if fmt == "pdf":
+            self._load_pdf(path)
+            return
+        if fmt == "epub":
+            self._load_epub(path)
+            return
+        self._show_message(f"Formato .{fmt} não suportado no leitor. Abrindo no sistema…")
+        self._open_external()
+
+    def _open_external(self) -> None:
+        if not self._current_path:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(self._current_path))
 
     def _load_pdf(self, path: str) -> None:
         error = self.pdf_doc.load(path)
