@@ -325,6 +325,14 @@ class MainWindow(QMainWindow):
             self.action_bulk_edit.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogDetailedView))
         toolbar.addAction(self.action_bulk_edit)
 
+        self.action_read = QAction("Ler", self)
+        self.action_read.triggered.connect(self._open_reader_current)  # type: ignore[attr-defined]
+        if style and hasattr(style.StandardPixmap, "SP_MediaPlay"):
+            self.action_read.setIcon(style.standardIcon(style.StandardPixmap.SP_MediaPlay))
+        elif style:
+            self.action_read.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogOpenButton))
+        toolbar.addAction(self.action_read)
+
         self.action_delete_selected = QAction("Excluir selecionados", self)
         self.action_delete_selected.triggered.connect(self._delete_selected)  # type: ignore[attr-defined]
         if style:
@@ -566,10 +574,12 @@ class MainWindow(QMainWindow):
         selection = self.library_page.table.selectionModel().selectedRows()
         if not selection:
             self._populate_detail(None)
+            self._update_collection_actions()
             return
         index = selection[0]
         book = self.library_page.model.book_at(index.row())
         self._populate_detail(book)
+        self._update_collection_actions()
 
     def _populate_detail(self, book):
         if not book:
@@ -631,6 +641,9 @@ class MainWindow(QMainWindow):
         self.action_remove_from_collection.setEnabled(has_collection_target and has_selection)
         if hasattr(self, "action_bulk_edit"):
             self.action_bulk_edit.setEnabled(has_selection)
+        if hasattr(self, "action_read"):
+            has_file = bool(self.current_detail and self.current_detail.files)
+            self.action_read.setEnabled(has_selection and has_file)
         if hasattr(self, "action_delete_selected"):
             self.action_delete_selected.setEnabled(has_selection)
 
@@ -762,3 +775,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Selecione um item para editar.", 4000)
             return
         self.detail_panel.focus_title()
+
+    def _open_reader_current(self) -> None:
+        if not self.current_detail or not self.current_detail.files:
+            QMessageBox.information(self, "Leitor", "Nenhum arquivo associado para leitura.")
+            return
+        self.detail_panel.open_reader()

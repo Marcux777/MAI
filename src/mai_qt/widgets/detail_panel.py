@@ -87,7 +87,7 @@ class PreviewTab(QWidget):
         header.addWidget(self.file_box, 1)
 
         self.read_btn = QPushButton("Ler")
-        self.read_btn.clicked.connect(self._open_reader)  # type: ignore[attr-defined]
+        self.read_btn.clicked.connect(self.open_reader)  # type: ignore[attr-defined]
         header.addWidget(self.read_btn)
 
         self.open_btn = QPushButton("Abrir no sistema")
@@ -159,7 +159,7 @@ class PreviewTab(QWidget):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    def _open_reader(self) -> None:
+    def open_reader(self) -> None:
         path = self._current_path()
         if not path:
             return
@@ -489,6 +489,12 @@ class DetailPanel(QWidget):
         self.tabs.setCurrentIndex(0)
         self.title_edit.setFocus()
         self.title_edit.selectAll()
+
+    def open_reader(self) -> None:
+        if not self.current_detail or not self.current_detail.files:
+            self.update_status("Nenhum arquivo associado para leitura.")
+            return
+        self.preview_tab.open_reader()
 
     def _on_tab_changed(self, index: int) -> None:
         self.preview_tab.set_active(index == self.preview_index)
