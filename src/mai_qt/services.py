@@ -34,6 +34,7 @@ class BookRow:
     fmt: str | None
     added_at: str | None
     file_path: str | None
+    cover_url: str | None = None
 
 
 @dataclass
@@ -260,6 +261,7 @@ class LibraryService:
                     selectinload(models.Edition.work)
                     .selectinload(models.Work.series_entries)
                     .selectinload(models.SeriesEntry.series),
+                    selectinload(models.Edition.identifiers),
                     selectinload(models.Edition.tags),
                     selectinload(models.Edition.files),
                 )
@@ -275,6 +277,7 @@ class LibraryService:
                 authors = ", ".join(a.name for a in (edition.work.authors if edition.work else []))
                 tags = ", ".join(t.name for t in edition.tags)
                 file_path = edition.files[0].path if edition.files else None
+                cover_url = edition.cover_url or self._cover_url_from_identifiers(edition.identifiers)
                 rows.append(
                     BookRow(
                         edition_id=edition.id,
@@ -288,9 +291,33 @@ class LibraryService:
                         fmt=edition.format,
                         added_at=edition.created_at.isoformat() if edition.created_at else None,
                         file_path=file_path,
+                        cover_url=cover_url,
                     )
                 )
             return rows
+
+    @staticmethod
+    def _cover_url_from_identifiers(identifiers: list[models.Identifier]) -> str | None:
+        if not identifiers:
+            return None
+        isbn = None
+        for ident in identifiers:
+            scheme = (ident.scheme or "").upper()
+            if scheme == "ISBN13":
+                isbn = ident.value
+                break
+        if not isbn:
+            for ident in identifiers:
+                scheme = (ident.scheme or "").upper()
+                if scheme == "ISBN10":
+                    isbn = ident.value
+                    break
+        if not isbn:
+            return None
+        cleaned = "".join(ch for ch in str(isbn) if ch.isdigit() or ch in {"X", "x"})
+        if not cleaned:
+            return None
+        return f"https://covers.openlibrary.org/b/isbn/{cleaned}-M.jpg"
 
     def get_library_stats(self) -> LibraryStats:
         with session_scope() as session:
@@ -640,6 +667,42 @@ class LibraryService:
                     deleted_files += result.deleted_files
                     disk_errors.extend(result.disk_errors)
         return {"deleted": deleted, "deleted_files": deleted_files, "disk_errors": disk_errors}
+
+    def update_editions_bulk(
+        self,
+        edition_ids: List[int],
+        *,
+        tags: List[str] | None = None,
+        merge_tags: bool = True,
+        read_status: str | None = None,
+        rating: float | None = None,
+        rating_set: bool = False,
+    ) -> dict:
+        ids = [int(eid) for eid in edition_ids if int(eid) > 0]
+        if not ids:
+            return {"updated": 0}
+        updated = 0
+        with session_scope() as session:
+            for edition_id in ids:
+                edition = session.get(models.Edition, edition_id)
+                if not edition:
+                    continue
+                if tags is not None:
+                    if merge_tags:
+                        existing = [tag.name for tag in edition.tags]
+                        merged = [*existing, *tags]
+                        library_crud.set_edition_tags(session, edition, merged)
+                    else:
+                        library_crud.set_edition_tags(session, edition, tags)
+                if read_status is not None:
+                    edition.read_status = read_status
+                if rating_set:
+                    edition.rating = rating
+                library_crud.touch_edition(edition)
+                session.flush()
+                upsert_for_edition(session, edition.id)
+                updated += 1
+        return {"updated": updated}
 
 
 def _series_for_work(work: models.Work | None) -> tuple[str | None, float | None]:

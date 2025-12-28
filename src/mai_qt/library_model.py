@@ -54,3 +54,36 @@ class LibraryTableModel(QAbstractTableModel):
         if 0 <= row < len(self._rows):
             return self._rows[row]
         return None
+
+    def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:  # type: ignore[override]
+        if not self._rows:
+            return
+        reverse = order == Qt.SortOrder.DescendingOrder
+
+        def key(row: BookRow):
+            if column == 2:
+                value = row.year if row.year is not None else 0
+                return (row.year is None, -value if reverse else value)
+            if column == 3:
+                value = row.pages if row.pages is not None else 0
+                return (row.pages is None, -value if reverse else value)
+            if column == 0:
+                return (row.title or "").casefold()
+            if column == 1:
+                return (row.authors or "").casefold()
+            if column == 4:
+                return (row.language or "").casefold()
+            if column == 5:
+                return (row.tags or "").casefold()
+            if column == 6:
+                return (row.fmt or "").casefold()
+            if column == 7:
+                return (row.file_path or "").casefold()
+            return ""
+
+        self.layoutAboutToBeChanged.emit()
+        if column in {2, 3}:
+            self._rows.sort(key=key)
+        else:
+            self._rows.sort(key=key, reverse=reverse)
+        self.layoutChanged.emit()

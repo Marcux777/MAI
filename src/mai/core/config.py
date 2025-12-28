@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     ebook_chars_per_page: int = 2400
     reading_pages_per_hour: float = 40.0
 
+    # UI (Qt)
+    qt_theme: str | None = "dark_teal.xml"
+
     class Config:
         env_prefix = "MAI_"
         env_file = ".env"
