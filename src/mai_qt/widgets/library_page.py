@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import httpx
+
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot, QSize
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QLineEdit,
     QPushButton,
+    QStackedWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -16,6 +22,31 @@ from ..library_model import LibraryTableModel
 from ..services import LibraryService
 
 
+class _CoverSignals(QObject):
+    loaded = Signal(str, bytes)
+    failed = Signal(str, str)
+
+
+class _CoverLoadTask(QRunnable):
+    def __init__(self, url: str, timeout: float = 10.0) -> None:
+        super().__init__()
+        self.url = url
+        self.timeout = timeout
+        self.signals = _CoverSignals()
+
+    @Slot()
+    def run(self) -> None:  # pragma: no cover - runs in Qt threadpool
+        try:
+            resp = httpx.get(self.url, timeout=self.timeout)
+            resp.raise_for_status()
+            data = bytes(resp.content or b"")
+            if not data:
+                raise RuntimeError("Resposta vazia")
+            self.signals.loaded.emit(self.url, data)
+        except Exception as exc:
+            self.signals.failed.emit(self.url, str(exc))
+
+
 class LibraryPage(QWidget):
     def __init__(self, service: LibraryService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -23,6 +54,14 @@ class LibraryPage(QWidget):
         self.model = LibraryTableModel()
         self.collection_id: int | None = None
         self.unfiled_only: bool = False
+        self._rows = []
+        self._cover_cache: dict[str, QPixmap] = {}
+        self._cover_pending: set[str] = set()
+        self._pool = QThreadPool.globalInstance()
+        self._syncing = False
+        self._cover_size = QSize(110, 160)
+        self._placeholder = self._build_placeholder()
+        self._placeholder_icon = QIcon(self._placeholder)
         self._build_ui()
         self.refresh()
 
@@ -37,11 +76,22 @@ class LibraryPage(QWidget):
         self.refresh_btn = QPushButton("Atualizar")
         self.refresh_btn.clicked.connect(self.refresh)  # type: ignore[attr-defined]
 
+        self.view_list_btn = QPushButton("Lista")
+        self.view_list_btn.setCheckable(True)
+        self.view_list_btn.setChecked(True)
+        self.view_list_btn.clicked.connect(lambda: self._set_view_mode("list"))  # type: ignore[attr-defined]
+
+        self.view_grid_btn = QPushButton("Grade")
+        self.view_grid_btn.setCheckable(True)
+        self.view_grid_btn.clicked.connect(lambda: self._set_view_mode("grid"))  # type: ignore[attr-defined]
+
         self.info = QLabel("")
         self.info.setObjectName("infoLabel")
 
         header.addWidget(self.search_input)
         header.addWidget(self.refresh_btn)
+        header.addWidget(self.view_list_btn)
+        header.addWidget(self.view_grid_btn)
         header.addWidget(self.info)
         layout.addLayout(header)
 
@@ -53,8 +103,22 @@ class LibraryPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
+        self.table.selectionModel().selectionChanged.connect(self._on_table_selection)  # type: ignore[attr-defined]
 
-        layout.addWidget(self.table)
+        self.grid = QListWidget()
+        self.grid.setViewMode(QListWidget.ViewMode.IconMode)
+        self.grid.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.grid.setMovement(QListWidget.Movement.Static)
+        self.grid.setWrapping(True)
+        self.grid.setIconSize(self._cover_size)
+        self.grid.setGridSize(QSize(self._cover_size.width() + 30, self._cover_size.height() + 50))
+        self.grid.setSpacing(10)
+        self.grid.itemSelectionChanged.connect(self._on_grid_selection)  # type: ignore[attr-defined]
+
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.table)
+        self.view_stack.addWidget(self.grid)
+        layout.addWidget(self.view_stack)
 
     def set_collection_filter(self, collection_id: int | None, unfiled_only: bool = False) -> None:
         self.collection_id = collection_id
@@ -68,7 +132,9 @@ class LibraryPage(QWidget):
             collection_id=self.collection_id,
             unfiled_only=self.unfiled_only,
         )
+        self._rows = rows
         self.model.set_rows(rows)
+        self._populate_grid(rows)
         self.info.setText(f"{len(rows)} itens")
 
     def selected_edition_ids(self) -> list[int]:
@@ -81,6 +147,9 @@ class LibraryPage(QWidget):
         return ids
 
     def select_edition(self, edition_id: int) -> bool:
+        if self._syncing:
+            return False
+        self._syncing = True
         for row_index in range(self.model.rowCount()):
             row = self.model.book_at(row_index)
             if not row:
@@ -89,5 +158,107 @@ class LibraryPage(QWidget):
                 continue
             self.table.selectRow(row_index)
             self.table.scrollTo(self.model.index(row_index, 0))
+            self._select_grid_item(edition_id)
+            self._syncing = False
             return True
+        self._syncing = False
         return False
+
+    def _set_view_mode(self, mode: str) -> None:
+        if mode == "grid":
+            self.view_list_btn.setChecked(False)
+            self.view_grid_btn.setChecked(True)
+            self.view_stack.setCurrentWidget(self.grid)
+        else:
+            self.view_list_btn.setChecked(True)
+            self.view_grid_btn.setChecked(False)
+            self.view_stack.setCurrentWidget(self.table)
+
+    def _populate_grid(self, rows) -> None:
+        self.grid.clear()
+        for row in rows:
+            item = QListWidgetItem(row.title)
+            item.setData(Qt.ItemDataRole.UserRole, int(row.edition_id))
+            cover_url = row.cover_url
+            item.setData(Qt.ItemDataRole.UserRole + 1, cover_url)
+            icon = self._placeholder_icon
+            if cover_url:
+                cached = self._cover_cache.get(cover_url)
+                if cached:
+                    icon = QIcon(cached)
+                else:
+                    self._queue_cover(cover_url)
+            item.setIcon(icon)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.grid.addItem(item)
+
+    def _queue_cover(self, url: str) -> None:
+        if url in self._cover_pending:
+            return
+        self._cover_pending.add(url)
+        task = _CoverLoadTask(url)
+        task.signals.loaded.connect(self._on_cover_loaded)  # type: ignore[attr-defined]
+        task.signals.failed.connect(self._on_cover_failed)  # type: ignore[attr-defined]
+        self._pool.start(task)
+
+    def _on_cover_loaded(self, url: str, data: bytes) -> None:
+        self._cover_pending.discard(url)
+        image = QImage.fromData(data)
+        if image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image).scaled(
+            self._cover_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._cover_cache[url] = pixmap
+        self._update_grid_icons(url, QIcon(pixmap))
+
+    def _on_cover_failed(self, url: str, _error: str) -> None:
+        self._cover_pending.discard(url)
+
+    def _update_grid_icons(self, url: str, icon: QIcon) -> None:
+        for i in range(self.grid.count()):
+            item = self.grid.item(i)
+            if item.data(Qt.ItemDataRole.UserRole + 1) == url:
+                item.setIcon(icon)
+
+    def _build_placeholder(self) -> QPixmap:
+        pixmap = QPixmap(self._cover_size)
+        pixmap.fill(QColor("#2d2d2d"))
+        painter = QPainter(pixmap)
+        painter.setPen(QColor("#d0d0d0"))
+        painter.drawRect(pixmap.rect().adjusted(0, 0, -1, -1))
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "Sem\ncapa")
+        painter.end()
+        return pixmap
+
+    def _on_table_selection(self) -> None:
+        if self._syncing:
+            return
+        selection = self.table.selectionModel().selectedRows()
+        if not selection:
+            return
+        row = self.model.book_at(selection[0].row())
+        if not row:
+            return
+        self._syncing = True
+        self._select_grid_item(int(row.edition_id))
+        self._syncing = False
+
+    def _on_grid_selection(self) -> None:
+        item = self.grid.currentItem()
+        if not item:
+            return
+        edition_id = item.data(Qt.ItemDataRole.UserRole)
+        if edition_id is None:
+            return
+        self.select_edition(int(edition_id))
+
+    def _select_grid_item(self, edition_id: int) -> None:
+        for i in range(self.grid.count()):
+            item = self.grid.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == int(edition_id):
+                self.grid.setCurrentItem(item)
+                self.grid.scrollToItem(item)
+                break
