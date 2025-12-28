@@ -20,6 +20,8 @@ def create_sample_data():
             format="EPUB",
             language="pt",
             pub_year=2020,
+            rating=3.0,
+            read_status="read",
         )
         session.add(edition)
         session.flush()
@@ -70,6 +72,8 @@ def test_get_detail_returns_related_data(temp_db):
     assert detail is not None
     assert detail.title == "Edição Original"
     assert detail.authors == ["Ana Becker"]
+    assert detail.rating == 3.0
+    assert detail.read_status == "read"
     assert detail.identifiers[0].scheme == "ISBN13"
     assert detail.files[0].path == "/tmp/demo.epub"
     assert detail.providers[0].provider == "openlibrary"
@@ -88,6 +92,8 @@ def test_save_detail_updates_metadata(temp_db):
         year=2022,
         language="en",
         description="Atualizado",
+        rating=4.5,
+        read_status="read",
     )
     service.save_detail(detail)
     with session_scope() as session:
@@ -95,6 +101,8 @@ def test_save_detail_updates_metadata(temp_db):
         assert edition.title == "Nova Edição"
         assert edition.pub_year == 2022
         assert edition.language == "en"
+        assert edition.rating == 4.5
+        assert edition.read_status == "read"
         work = edition.work
         assert [a.name for a in work.authors] == ["Joana Lima"]
 

@@ -51,10 +51,14 @@ def test_patch_book_updates_metadata_and_search(temp_db, tmp_path):
                 authors=["Ana", "Bruno"],
                 tags=["python", "ebook"],
                 description="Desc",
+                rating=4.0,
+                read_status="read",
             ),
             db=session,
         )
         assert detail.edition.title == "Novo Título"
+        assert detail.edition.rating == 4.0
+        assert detail.edition.read_status == "read"
         assert [a.name for a in detail.authors] == ["Ana", "Bruno"]
         assert sorted(detail.tags) == ["ebook", "python"]
         assert detail.work and detail.work.description == "Desc"

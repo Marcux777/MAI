@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS edition (
   language     TEXT,
   cover_path   TEXT,
   cover_url    TEXT,
+  rating       REAL CHECK (rating IS NULL OR (rating >= 0 AND rating <= 5)),
+  read_status  TEXT NOT NULL DEFAULT 'unread' CHECK (read_status IN ('unread', 'read')),
   created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at   TEXT
 );

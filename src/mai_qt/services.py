@@ -41,6 +41,8 @@ class EditionDetail:
     year: Optional[int]
     language: Optional[str]
     description: Optional[str]
+    rating: Optional[float] = None
+    read_status: str = "unread"
     series: Optional[str] = None
     series_position: Optional[float] = None
     tags: List[str] = field(default_factory=list)
@@ -261,6 +263,8 @@ class LibraryService:
                 year=edition.pub_year,
                 language=edition.language or (work.language if work else None),
                 description=(work.description if work else None),
+                rating=edition.rating,
+                read_status=edition.read_status,
                 series=series_name,
                 series_position=series_position,
                 tags=[t.name for t in edition.tags],
@@ -320,6 +324,8 @@ class LibraryService:
             edition.subtitle = detail.subtitle or None
             edition.language = detail.language or None
             edition.pub_year = detail.year
+            edition.rating = detail.rating
+            edition.read_status = detail.read_status or "unread"
             work.title = detail.title or work.title
             work.description = detail.description
             work.language = detail.language or None
