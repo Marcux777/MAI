@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot, QSize
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot, QSize, QTimer
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -63,6 +63,10 @@ class LibraryPage(QWidget):
         self._cover_size = QSize(110, 160)
         self._placeholder = self._build_placeholder()
         self._placeholder_icon = QIcon(self._placeholder)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self.refresh)  # type: ignore[attr-defined]
         self._build_ui()
         self.refresh()
 
@@ -73,6 +77,7 @@ class LibraryPage(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Buscar título, autor ou tag...")
         self.search_input.returnPressed.connect(self.refresh)  # type: ignore[attr-defined]
+        self.search_input.textChanged.connect(self._schedule_refresh)  # type: ignore[attr-defined]
 
         self.refresh_btn = QPushButton("Atualizar")
         self.refresh_btn.clicked.connect(self.refresh)  # type: ignore[attr-defined]
@@ -120,6 +125,7 @@ class LibraryPage(QWidget):
         self.grid.setIconSize(self._cover_size)
         self.grid.setGridSize(QSize(self._cover_size.width() + 30, self._cover_size.height() + 50))
         self.grid.setSpacing(10)
+        self.grid.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.grid.itemSelectionChanged.connect(self._on_grid_selection)  # type: ignore[attr-defined]
 
         self.view_stack = QStackedWidget()
@@ -143,8 +149,16 @@ class LibraryPage(QWidget):
         self.model.set_rows(rows)
         self._populate_grid(rows)
         self.info.setText(f"{len(rows)} itens")
+        self._search_timer.stop()
 
     def selected_edition_ids(self) -> list[int]:
+        if self.view_stack.currentWidget() == self.grid:
+            ids = []
+            for item in self.grid.selectedItems():
+                edition_id = item.data(Qt.ItemDataRole.UserRole)
+                if edition_id is not None:
+                    ids.append(int(edition_id))
+            return ids
         selection = self.table.selectionModel().selectedRows()
         ids: list[int] = []
         for index in selection:
@@ -170,6 +184,9 @@ class LibraryPage(QWidget):
             return True
         self._syncing = False
         return False
+
+    def _schedule_refresh(self) -> None:
+        self._search_timer.start()
 
     def _set_view_mode(self, mode: str) -> None:
         if mode == "grid":
@@ -254,6 +271,12 @@ class LibraryPage(QWidget):
         self._syncing = False
 
     def _on_grid_selection(self) -> None:
+        if not self.grid.selectedItems():
+            if not self._syncing:
+                self._syncing = True
+                self.table.clearSelection()
+                self._syncing = False
+            return
         item = self.grid.currentItem()
         if not item:
             return

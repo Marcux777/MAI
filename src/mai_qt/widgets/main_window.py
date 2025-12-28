@@ -4,17 +4,23 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QUrl, Qt, QSize
-from PySide6.QtGui import QAction, QCursor
+from PySide6.QtGui import QAction, QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
+    QCheckBox,
     QDockWidget,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QComboBox,
+    QLineEdit,
     QStackedWidget,
     QMessageBox,
     QToolBar,
@@ -118,6 +124,46 @@ class _GlobalFileDropFilter(QObject):
         return False
 
 
+class _BulkEditDialog(QDialog):
+    def __init__(self, count: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Editar em lote")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        info = QLabel(f"Aplicar em {count} item(ns) selecionado(s).")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText("Ex: Ficção, Suspense (vazio = manter)")
+        self.merge_tags = QCheckBox("Mesclar com tags existentes")
+        self.merge_tags.setChecked(True)
+        form.addRow("Tags", self.tags_edit)
+        form.addRow("", self.merge_tags)
+
+        self.read_status_combo = QComboBox()
+        self.read_status_combo.addItem("Manter", None)
+        self.read_status_combo.addItem("Não lido", "unread")
+        self.read_status_combo.addItem("Lido", "read")
+        form.addRow("Status leitura", self.read_status_combo)
+
+        self.rating_combo = QComboBox()
+        self.rating_combo.addItem("Manter", ("keep", None))
+        self.rating_combo.addItem("Sem nota", ("set", None))
+        for value in range(0, 6):
+            self.rating_combo.addItem(str(value), ("set", float(value)))
+        form.addRow("Nota", self.rating_combo)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)  # type: ignore[attr-defined]
+        buttons.rejected.connect(self.reject)  # type: ignore[attr-defined]
+        layout.addWidget(buttons)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -191,6 +237,7 @@ class MainWindow(QMainWindow):
         self._build_collections_dock()
         self._build_detail_dock()
         self._build_toolbar()
+        self._build_shortcuts()
 
     def _build_navigation(self) -> None:
         self.nav_items: list[tuple[str, QWidget]] = []
@@ -246,6 +293,7 @@ class MainWindow(QMainWindow):
         table = self.library_page.table
         table.selectionModel().selectionChanged.connect(self._update_detail)  # type: ignore[attr-defined]
         table.selectionModel().selectionChanged.connect(self._update_collection_actions)  # type: ignore[attr-defined]
+        self.library_page.grid.itemSelectionChanged.connect(self._update_collection_actions)  # type: ignore[attr-defined]
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("MAI", self)
@@ -271,6 +319,12 @@ class MainWindow(QMainWindow):
             self.action_remove_from_collection.setIcon(style.standardIcon(style.StandardPixmap.SP_DialogCancelButton))
         toolbar.addAction(self.action_remove_from_collection)
 
+        self.action_bulk_edit = QAction("Editar em lote", self)
+        self.action_bulk_edit.triggered.connect(self._open_bulk_edit_dialog)  # type: ignore[attr-defined]
+        if style:
+            self.action_bulk_edit.setIcon(style.standardIcon(style.StandardPixmap.SP_FileDialogDetailedView))
+        toolbar.addAction(self.action_bulk_edit)
+
         self.action_delete_selected = QAction("Excluir selecionados", self)
         self.action_delete_selected.triggered.connect(self._delete_selected)  # type: ignore[attr-defined]
         if style:
@@ -287,6 +341,28 @@ class MainWindow(QMainWindow):
 
         self._update_collection_actions()
 
+    def _build_shortcuts(self) -> None:
+        self.shortcut_delete_table = QShortcut(QKeySequence.Delete, self.library_page.table)
+        self.shortcut_delete_table.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_delete_table.activated.connect(self._delete_selected)  # type: ignore[attr-defined]
+        self.shortcut_delete_grid = QShortcut(QKeySequence.Delete, self.library_page.grid)
+        self.shortcut_delete_grid.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_delete_grid.activated.connect(self._delete_selected)  # type: ignore[attr-defined]
+
+        self.shortcut_edit_table = QShortcut(QKeySequence("F2"), self.library_page.table)
+        self.shortcut_edit_table.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_edit_table.activated.connect(self._focus_title_shortcut)  # type: ignore[attr-defined]
+        self.shortcut_edit_grid = QShortcut(QKeySequence("F2"), self.library_page.grid)
+        self.shortcut_edit_grid.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_edit_grid.activated.connect(self._focus_title_shortcut)  # type: ignore[attr-defined]
+
+        self.shortcut_bulk_edit_table = QShortcut(QKeySequence("Ctrl+E"), self.library_page.table)
+        self.shortcut_bulk_edit_table.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_bulk_edit_table.activated.connect(self._open_bulk_edit_dialog)  # type: ignore[attr-defined]
+        self.shortcut_bulk_edit_grid = QShortcut(QKeySequence("Ctrl+E"), self.library_page.grid)
+        self.shortcut_bulk_edit_grid.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_bulk_edit_grid.activated.connect(self._open_bulk_edit_dialog)  # type: ignore[attr-defined]
+
     def _install_global_drop_filter(self) -> None:  # pragma: no cover - GUI
         app = QApplication.instance()
         if not app:
@@ -297,6 +373,7 @@ class MainWindow(QMainWindow):
     def _refresh_all(self) -> None:
         self.collection_tree.refresh()
         self.library_page.refresh()
+        self._update_collection_actions()
         if hasattr(self, "metrics_page"):
             self.metrics_page.refresh()
 
@@ -552,6 +629,8 @@ class MainWindow(QMainWindow):
         has_selection = bool(self.library_page.selected_edition_ids())
         self.action_add_to_collection.setEnabled(has_collection_target and has_selection)
         self.action_remove_from_collection.setEnabled(has_collection_target and has_selection)
+        if hasattr(self, "action_bulk_edit"):
+            self.action_bulk_edit.setEnabled(has_selection)
         if hasattr(self, "action_delete_selected"):
             self.action_delete_selected.setEnabled(has_selection)
 
@@ -562,7 +641,7 @@ class MainWindow(QMainWindow):
             return
         edition_ids = self.library_page.selected_edition_ids()
         if not edition_ids:
-            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na tabela.")
+            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na biblioteca.")
             return
         try:
             self.collection_service.add_editions(collection_id, edition_ids)
@@ -579,7 +658,7 @@ class MainWindow(QMainWindow):
             return
         edition_ids = self.library_page.selected_edition_ids()
         if not edition_ids:
-            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na tabela.")
+            QMessageBox.information(self, "Coleções", "Selecione um ou mais itens na biblioteca.")
             return
         try:
             self.collection_service.remove_editions(collection_id, edition_ids)
@@ -592,7 +671,7 @@ class MainWindow(QMainWindow):
     def _delete_selected(self) -> None:
         edition_ids = self.library_page.selected_edition_ids()
         if not edition_ids:
-            QMessageBox.information(self, "Excluir", "Selecione um ou mais itens na tabela.")
+            QMessageBox.information(self, "Excluir", "Selecione um ou mais itens na biblioteca.")
             return
 
         resp = QMessageBox.question(
@@ -627,5 +706,59 @@ class MainWindow(QMainWindow):
         self.library_page.refresh()
         self.collection_tree.refresh()
         self._populate_detail(None)
+        self._update_collection_actions()
         if hasattr(self, "metrics_page"):
             self.metrics_page.refresh()
+
+    def _open_bulk_edit_dialog(self) -> None:
+        edition_ids = self.library_page.selected_edition_ids()
+        if not edition_ids:
+            QMessageBox.information(self, "Editar em lote", "Selecione um ou mais itens na biblioteca.")
+            return
+
+        dialog = _BulkEditDialog(len(edition_ids), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        tags_raw = dialog.tags_edit.text()
+        tags = [tag.strip() for tag in tags_raw.split(",") if tag.strip()]
+        tags_param = tags if tags else None
+        read_status = dialog.read_status_combo.currentData()
+        rating_action, rating_value = dialog.rating_combo.currentData()
+        rating_set = rating_action == "set"
+        rating = rating_value if rating_set else None
+        merge_tags = dialog.merge_tags.isChecked()
+
+        if not tags_param and read_status is None and not rating_set:
+            QMessageBox.information(self, "Editar em lote", "Nenhuma alteração definida.")
+            return
+
+        try:
+            result = self.library_service.update_editions_bulk(
+                edition_ids,
+                tags=tags_param,
+                merge_tags=merge_tags,
+                read_status=read_status,
+                rating=rating,
+                rating_set=rating_set,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Editar em lote", str(exc))
+            return
+
+        updated = int(result.get("updated") or 0)
+        self.statusBar().showMessage(f"{updated} item(ns) atualizado(s).", 6000)
+        self.library_page.refresh()
+        self._update_collection_actions()
+        if hasattr(self, "metrics_page"):
+            self.metrics_page.refresh()
+        if self.current_detail and self.current_detail.edition_id in edition_ids:
+            detail = self.library_service.get_detail(self.current_detail.edition_id)
+            self.current_detail = detail
+            self.detail_panel.set_detail(detail)
+
+    def _focus_title_shortcut(self) -> None:
+        if not self.current_detail:
+            self.statusBar().showMessage("Selecione um item para editar.", 4000)
+            return
+        self.detail_panel.focus_title()

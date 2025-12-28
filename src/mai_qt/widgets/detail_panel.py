@@ -372,6 +372,11 @@ class DetailPanel(QWidget):
         if message:
             QTimer.singleShot(4000, lambda: self.status.setText(""))
 
+    def focus_title(self) -> None:
+        self.tabs.setCurrentIndex(0)
+        self.title_edit.setFocus()
+        self.title_edit.selectAll()
+
     def _on_tab_changed(self, index: int) -> None:
         self.preview_tab.set_active(index == self.preview_index)
 

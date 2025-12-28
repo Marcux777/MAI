@@ -559,6 +559,42 @@ class LibraryService:
                     disk_errors.extend(result.disk_errors)
         return {"deleted": deleted, "deleted_files": deleted_files, "disk_errors": disk_errors}
 
+    def update_editions_bulk(
+        self,
+        edition_ids: List[int],
+        *,
+        tags: List[str] | None = None,
+        merge_tags: bool = True,
+        read_status: str | None = None,
+        rating: float | None = None,
+        rating_set: bool = False,
+    ) -> dict:
+        ids = [int(eid) for eid in edition_ids if int(eid) > 0]
+        if not ids:
+            return {"updated": 0}
+        updated = 0
+        with session_scope() as session:
+            for edition_id in ids:
+                edition = session.get(models.Edition, edition_id)
+                if not edition:
+                    continue
+                if tags is not None:
+                    if merge_tags:
+                        existing = [tag.name for tag in edition.tags]
+                        merged = [*existing, *tags]
+                        library_crud.set_edition_tags(session, edition, merged)
+                    else:
+                        library_crud.set_edition_tags(session, edition, tags)
+                if read_status is not None:
+                    edition.read_status = read_status
+                if rating_set:
+                    edition.rating = rating
+                library_crud.touch_edition(edition)
+                session.flush()
+                upsert_for_edition(session, edition.id)
+                updated += 1
+        return {"updated": updated}
+
 
 def _series_for_work(work: models.Work | None) -> tuple[str | None, float | None]:
     if not work:
