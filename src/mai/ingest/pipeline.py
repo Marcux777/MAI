@@ -16,12 +16,19 @@ from threading import Event
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from mai.core.config import get_settings
 from mai.core.logging import logger
 from mai.db import models
 from mai.db.indexer import upsert_for_edition
 from mai.db.session import session_scope
 from mai.ingest import extractors
-from mai.ingest.providers import BookBrainzProvider, GoogleBooksProvider, OpenLibraryProvider, Provider
+from mai.ingest.providers import (
+    BookBrainzProvider,
+    GoogleBooksProvider,
+    OpenLibraryProvider,
+    Provider,
+    fetch_openlibrary_rating,
+)
 from mai.ingest.types import Candidate, LocalMetadata
 from mai.utils.files import compute_sha256
 
@@ -115,6 +122,121 @@ def _merge_tags_from_categories(session, edition: models.Edition, categories: It
     existing = [tag.name for tag in edition.tags]
     merged = _clean_tag_strings([*existing, *normalized])
     _set_edition_tags(session, edition, merged)
+
+
+def _parse_rating_float(value: object | None) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_rating_count(value: object | None) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if digits:
+            return int(digits)
+    return None
+
+
+def _collect_external_ratings(candidate: Candidate) -> list[dict[str, object]]:
+    ratings: list[dict[str, object]] = []
+    if not candidate:
+        return ratings
+
+    if candidate.source == "google_books" and isinstance(candidate.payload, dict):
+        info = candidate.payload.get("volumeInfo") or {}
+        if isinstance(info, dict):
+            average = _parse_rating_float(info.get("averageRating"))
+            count = _parse_rating_count(info.get("ratingsCount"))
+            if average is not None or count is not None:
+                ratings.append(
+                    {
+                        "source": "google_books",
+                        "average": average,
+                        "count": count,
+                        "scale": 5.0,
+                        "url": info.get("infoLink") or info.get("canonicalVolumeLink"),
+                    }
+                )
+
+    if candidate.source == "openlibrary":
+        olid = candidate.ids.get("OLWORK")
+        if olid:
+            settings = get_settings()
+            timeout = float(getattr(settings, "provider_timeout", 8.0) or 8.0)
+            result = fetch_openlibrary_rating(olid, timeout=min(timeout, 8.0))
+            if result:
+                average, count = result
+                ratings.append(
+                    {
+                        "source": "openlibrary",
+                        "average": average,
+                        "count": count,
+                        "scale": 5.0,
+                        "url": f"{OpenLibraryProvider.base_url}/works/{olid}",
+                    }
+                )
+
+    return ratings
+
+
+def _upsert_external_ratings(
+    session,
+    edition: models.Edition,
+    ratings: Iterable[dict[str, object]],
+) -> None:
+    now = datetime.utcnow()
+    for rating in ratings:
+        source = str(rating.get("source") or "").strip()
+        if not source:
+            continue
+        average = rating.get("average")
+        count = rating.get("count")
+        scale = rating.get("scale")
+        url = rating.get("url")
+        if average is None and count is None:
+            continue
+        existing = session.scalar(
+            select(models.ExternalRating).where(
+                models.ExternalRating.edition_id == edition.id,
+                models.ExternalRating.source == source,
+            )
+        )
+        if existing:
+            existing.average = average
+            existing.count = count
+            existing.scale = scale
+            existing.url = url
+            existing.fetched_at = now
+        else:
+            session.add(
+                models.ExternalRating(
+                    edition_id=edition.id,
+                    source=source,
+                    average=average,
+                    count=count,
+                    scale=scale,
+                    url=url,
+                    fetched_at=now,
+                )
+            )
 
 
 def _upsert_series_entry(
@@ -350,6 +472,10 @@ def persist(
             candidate.series_position,
             replace=False,
         )
+    if candidate:
+        ratings = _collect_external_ratings(candidate)
+        if ratings:
+            _upsert_external_ratings(session, edition, ratings)
 
     file_record = models.File(
         edition_id=edition.id,
@@ -636,6 +762,9 @@ def apply_candidate_to_edition(session, edition: models.Edition, candidate: Cand
         )
     if candidate.pages and (edition.pages is None or edition.pages <= 0):
         edition.pages = int(candidate.pages)
+    ratings = _collect_external_ratings(candidate)
+    if ratings:
+        _upsert_external_ratings(session, edition, ratings)
 
     session.flush()
 

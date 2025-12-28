@@ -240,6 +240,7 @@ class DetailPanel(QWidget):
         self.author_edit = QLineEdit()
         self.tags_edit = QLineEdit()
         self.year_edit = QLineEdit()
+        self.pages_edit = QLineEdit()
         self.language_edit = QLineEdit()
         self.read_status_combo = QComboBox()
         self.read_status_combo.addItem("Não lido", "unread")
@@ -248,6 +249,7 @@ class DetailPanel(QWidget):
         self.rating_combo.addItem("Sem nota", None)
         for value in range(0, 6):
             self.rating_combo.addItem(str(value), float(value))
+        self.external_rating_label = QLabel("—")
         self.description_edit = QTextEdit()
         form.addRow("Título", self.title_edit)
         form.addRow("Subtítulo", self.subtitle_edit)
@@ -256,9 +258,11 @@ class DetailPanel(QWidget):
         form.addRow("Autores", self.author_edit)
         form.addRow("Tags", self.tags_edit)
         form.addRow("Ano", self.year_edit)
+        form.addRow("Páginas", self.pages_edit)
         form.addRow("Idioma", self.language_edit)
         form.addRow("Status leitura", self.read_status_combo)
         form.addRow("Nota", self.rating_combo)
+        form.addRow("Avaliação externa", self.external_rating_label)
         form.addRow("Descrição", self.description_edit)
         button_row = QHBoxLayout()
         self.save_btn = QPushButton("Salvar")
@@ -286,10 +290,12 @@ class DetailPanel(QWidget):
             self.author_edit.clear()
             self.tags_edit.clear()
             self.year_edit.clear()
+            self.pages_edit.clear()
             self.language_edit.clear()
             self.description_edit.clear()
             self.read_status_combo.setCurrentIndex(0)
             self.rating_combo.setCurrentIndex(0)
+            self.external_rating_label.setText("—")
             self.status.setText("Selecione um item para editar.")
             self.save_btn.setEnabled(False)
             self.fetch_btn.setEnabled(False)
@@ -304,11 +310,13 @@ class DetailPanel(QWidget):
         self.author_edit.setText(", ".join(detail.authors))
         self.tags_edit.setText(", ".join(detail.tags))
         self.year_edit.setText(str(detail.year or ""))
+        self.pages_edit.setText(str(detail.pages or ""))
         self.language_edit.setText(detail.language or "")
         status_index = self.read_status_combo.findData(detail.read_status)
         self.read_status_combo.setCurrentIndex(status_index if status_index >= 0 else 0)
         rating_index = self.rating_combo.findData(detail.rating)
         self.rating_combo.setCurrentIndex(rating_index if rating_index >= 0 else 0)
+        self.external_rating_label.setText(self._format_external_ratings(detail))
         self.description_edit.setPlainText(detail.description or "")
         self.status.setText("Edite os campos e clique em Salvar.")
         self._populate_tables(detail)
@@ -321,6 +329,10 @@ class DetailPanel(QWidget):
             year_value = int(self.year_edit.text()) if self.year_edit.text().strip() else None
         except ValueError:
             year_value = None
+        try:
+            pages_value = int(self.pages_edit.text()) if self.pages_edit.text().strip() else None
+        except ValueError:
+            pages_value = None
         try:
             series_position = (
                 float(self.series_position_edit.text())
@@ -338,6 +350,7 @@ class DetailPanel(QWidget):
             authors=[name.strip() for name in self.author_edit.text().split(",") if name.strip()],
             tags=[name.strip() for name in self.tags_edit.text().split(",") if name.strip()],
             year=year_value,
+            pages=pages_value,
             language=self.language_edit.text().strip() or None,
             description=self.description_edit.toPlainText().strip() or None,
             read_status=(self.read_status_combo.currentData() or "unread"),
@@ -363,6 +376,20 @@ class DetailPanel(QWidget):
         table.setAlternatingRowColors(True)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         return table
+
+    def _format_external_ratings(self, detail: EditionDetail) -> str:
+        ratings = detail.external_ratings or []
+        if not ratings:
+            return "—"
+        parts: list[str] = []
+        for rating in ratings:
+            label = rating.source.replace("_", " ").title()
+            avg = f"{rating.average:.2f}" if rating.average is not None else "—"
+            if rating.count is not None:
+                parts.append(f"{label}: {avg} ({rating.count})")
+            else:
+                parts.append(f"{label}: {avg}")
+        return " | ".join(parts)
 
     def _populate_tables(self, detail: EditionDetail) -> None:
         self._fill_table(self.ident_table, [[row.scheme, row.value] for row in detail.identifiers])

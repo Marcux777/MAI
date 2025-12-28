@@ -32,8 +32,8 @@ Objetivo: operar acervos reais com conforto (review, cache, OPDS, thumbnails, as
 
 Objetivo: integrações, refinamentos e qualidade de vida.
 
-- Import Goodreads CSV
-- Providers adicionais (ISBNdb etc.)
+- Import de CSVs públicos (sem Goodreads)
+- Providers adicionais (apenas APIs gratuitas)
 - Séries/tags “inteligentes”
 - i18n
 - analytics/métricas
@@ -59,4 +59,3 @@ Recomendação:
 - Crie Milestones A/B/C e associe issues.
 - Crie um Project v2 (ex.: “MAI — Roadmap”) com campos `Status/Type/Area/Priority` e views (Board/Table/Roadmap).
 - Use labels `type:*`, `area:*`, `prio:*` para triagem rápida (ver `.github/labels.yml`).
-

@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,7 @@ def extract_epub_meta(path: Path) -> LocalMetadata:
     if epub is None:
         raise RuntimeError("ebooklib não instalado (pip install ebooklib)")
     book = epub.read_epub(str(path))
+    settings = get_settings()
 
     def _first(ns: str, key: str) -> Optional[str]:
         values = book.get_metadata(ns, key)
@@ -60,7 +62,14 @@ def extract_epub_meta(path: Path) -> LocalMetadata:
     language = _first("DC", "language")
     authors = [value[0] for value in book.get_metadata("DC", "creator")]
     identifiers = [value[0] for value in book.get_metadata("DC", "identifier")]
-    return LocalMetadata(title=title, authors=authors, identifiers=identifiers, language=language)
+    pages = _estimate_epub_pages(book, chars_per_page=int(settings.ebook_chars_per_page))
+    return LocalMetadata(
+        title=title,
+        authors=authors,
+        identifiers=identifiers,
+        language=language,
+        pages=pages,
+    )
 
 
 def extract_pdf_meta(path: Path) -> LocalMetadata:
@@ -69,6 +78,7 @@ def extract_pdf_meta(path: Path) -> LocalMetadata:
     settings = get_settings()
     with fitz.open(path) as doc:
         info = doc.metadata or {}
+        pages = int(getattr(doc, "page_count", 0) or 0) or None
         inferred_title, inferred_authors = _infer_pdf_title_and_authors(doc)
         identifiers = _extract_isbn_tokens_from_pdf(
             doc,
@@ -92,6 +102,7 @@ def extract_pdf_meta(path: Path) -> LocalMetadata:
         identifiers=identifiers,
         language=None,
         year=_year_from_date(year),
+        pages=pages,
     )
 
 
@@ -329,6 +340,40 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
 
 def _count_alnum(text: str) -> int:
     return sum(1 for ch in text if ch.isalnum())
+
+
+class _HtmlTextCounter(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def handle_data(self, data: str) -> None:
+        self.count += _count_alnum(data)
+
+
+def _estimate_pages_from_chars(char_count: int, chars_per_page: int) -> Optional[int]:
+    if char_count <= 0 or chars_per_page <= 0:
+        return None
+    return max(1, int(round(char_count / float(chars_per_page))))
+
+
+def _estimate_epub_pages(book, *, chars_per_page: int) -> Optional[int]:
+    if chars_per_page <= 0:
+        return None
+    if epub is None:
+        return None
+    try:
+        from ebooklib import ITEM_DOCUMENT  # type: ignore
+    except Exception:
+        return None
+    counter = _HtmlTextCounter()
+    for item in book.get_items_of_type(ITEM_DOCUMENT):
+        content = item.get_content() or b""
+        if not content:
+            continue
+        text = content.decode("utf-8", errors="ignore")
+        counter.feed(text)
+    return _estimate_pages_from_chars(counter.count, chars_per_page)
 
 
 def _extract_isbn_tokens_from_pdf_ocr(doc, *, max_pages: int, dpi: int, lang: str, timeout_seconds: float) -> list[str]:

@@ -26,6 +26,7 @@ def _candidate_to_dict(entry: dict) -> dict:
         "ids": candidate.ids,
         "publisher": candidate.publisher,
         "year": candidate.year,
+        "pages": candidate.pages,
         "language": candidate.language,
         "cover_url": candidate.cover_url,
         "categories": candidate.categories,

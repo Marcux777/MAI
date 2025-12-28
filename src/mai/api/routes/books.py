@@ -18,6 +18,7 @@ from mai.schemas.books import (
     BookListItem,
     BookUpdateRequest,
     EditionSchema,
+    ExternalRatingSchema,
     FileDetailSchema,
     FileSchema,
     IdentifierSchema,
@@ -97,6 +98,7 @@ def list_books(
             selectinload(models.Edition.files),
             selectinload(models.Edition.identifiers),
             selectinload(models.Edition.tags),
+            selectinload(models.Edition.external_ratings),
         )
     )
 
@@ -198,6 +200,20 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         )
         for hit in provider_hits
     ]
+    external_ratings = [
+        ExternalRatingSchema(
+            source=rating.source,
+            average=rating.average,
+            count=rating.count,
+            scale=rating.scale,
+            url=rating.url,
+            fetched_at=rating.fetched_at,
+        )
+        for rating in sorted(
+            edition.external_ratings or [],
+            key=lambda item: (item.source, item.fetched_at or datetime.min),
+        )
+    ]
     history = [
         MatchEventSchema(
             stage=event.stage,
@@ -230,6 +246,7 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         tags=tags,
         series=_series_for_work(edition.work) if edition.work else None,
         providers=providers,
+        external_ratings=external_ratings,
         history=history,
     )
 
@@ -276,6 +293,9 @@ def update_book(edition_id: int, body: BookUpdateRequest, db: Session = Depends(
 
     if "pub_year" in fields:
         edition.pub_year = body.pub_year
+
+    if "pages" in fields:
+        edition.pages = body.pages
 
     if "rating" in fields:
         edition.rating = body.rating

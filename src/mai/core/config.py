@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     pdf_ocr_timeout_seconds: float = 10.0
     pdf_ocr_trigger_text_chars: int = 40
 
+    # Estimativas de leitura (ebooks)
+    ebook_chars_per_page: int = 2400
+    reading_pages_per_hour: float = 40.0
+
     class Config:
         env_prefix = "MAI_"
         env_file = ".env"

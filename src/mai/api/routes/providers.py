@@ -60,6 +60,7 @@ def fetch(body: ProviderFetchRequest, db: Session = Depends(get_db)) -> Provider
             ids=item["candidate"].ids,
             publisher=item["candidate"].publisher,
             year=item["candidate"].year,
+            pages=item["candidate"].pages,
             language=item["candidate"].language,
             cover_url=item["candidate"].cover_url,
             categories=item["candidate"].categories,

@@ -59,6 +59,7 @@ class Edition(Base):
     work: Mapped[Work] = relationship(back_populates="editions")
     files: Mapped[List["File"]] = relationship(back_populates="edition")
     identifiers: Mapped[List["Identifier"]] = relationship(back_populates="edition")
+    external_ratings: Mapped[List["ExternalRating"]] = relationship(back_populates="edition")
     tags: Mapped[List["Tag"]] = relationship(
         secondary="book_tag",
         back_populates="editions",
@@ -182,6 +183,21 @@ class ProviderHit(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     edition: Mapped[Optional[Edition]] = relationship()
+
+
+class ExternalRating(Base):
+    __tablename__ = "external_rating"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    edition_id: Mapped[int] = mapped_column(ForeignKey("edition.id", ondelete="CASCADE"))
+    source: Mapped[str]
+    average: Mapped[Optional[float]] = mapped_column(Float)
+    count: Mapped[Optional[int]] = mapped_column(Integer)
+    scale: Mapped[Optional[float]] = mapped_column(Float)
+    url: Mapped[Optional[str]] = mapped_column(String)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    edition: Mapped[Edition] = relationship(back_populates="external_ratings")
 
 
 class Series(Base):

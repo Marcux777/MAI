@@ -87,6 +87,21 @@ CREATE TABLE IF NOT EXISTS provider_hit (
   UNIQUE(provider, remote_id)
 );
 
+-- Ratings externos (ex.: Open Library, Google Books)
+CREATE TABLE IF NOT EXISTS external_rating (
+  id         INTEGER PRIMARY KEY,
+  edition_id INTEGER NOT NULL REFERENCES edition(id) ON DELETE CASCADE,
+  source     TEXT NOT NULL,
+  average    REAL,
+  count      INTEGER,
+  scale      REAL,
+  url        TEXT,
+  fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (edition_id, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_rating_edition ON external_rating(edition_id);
+
 -- Séries e participação das obras
 CREATE TABLE IF NOT EXISTS series (
   id    INTEGER PRIMARY KEY,

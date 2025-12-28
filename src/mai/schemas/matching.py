@@ -14,6 +14,7 @@ class CandidateInfo(BaseModel):
     ids: Dict[str, Optional[str]]
     publisher: Optional[str]
     year: Optional[int]
+    pages: Optional[int] = None
     language: Optional[str]
     cover_url: Optional[str]
     categories: List[str] = Field(default_factory=list)

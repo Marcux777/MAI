@@ -52,6 +52,16 @@ def create_sample_data():
         )
         session.add(hit)
 
+        rating = models.ExternalRating(
+            edition_id=edition.id,
+            source="openlibrary",
+            average=4.2,
+            count=120,
+            scale=5.0,
+            url="https://openlibrary.org/works/OL123W",
+        )
+        session.add(rating)
+
         event = models.MatchEvent(
             edition_id=edition.id,
             stage="search",
@@ -77,6 +87,8 @@ def test_get_detail_returns_related_data(temp_db):
     assert detail.identifiers[0].scheme == "ISBN13"
     assert detail.files[0].path == "/tmp/demo.epub"
     assert detail.providers[0].provider == "openlibrary"
+    assert detail.external_ratings[0].source == "openlibrary"
+    assert detail.external_ratings[0].average == 4.2
     assert detail.history[0].stage == "search"
 
 
