@@ -40,6 +40,8 @@ def test_upload_triggers_metadata_fetch(temp_db, tmp_path, monkeypatch):
                     ids={"ISBN13": "9781234567890"},
                     cover_url=None,
                     payload={},
+                    series="Saga do Teste",
+                    series_position=2,
                 )
             ]
 
@@ -72,6 +74,18 @@ def test_upload_triggers_metadata_fetch(temp_db, tmp_path, monkeypatch):
     assert payload["edition_id"] > 0
     assert Path(payload["path"]).exists()
     assert calls["search_queries"]
+
+    with session_scope() as session:
+        edition = session.scalar(select(models.Edition).limit(1))
+        assert edition is not None
+        entry = session.scalar(
+            select(models.SeriesEntry).where(models.SeriesEntry.work_id == edition.work_id)
+        )
+        assert entry is not None
+        series = session.get(models.Series, entry.series_id)
+        assert series is not None
+        assert series.name == "Saga do Teste"
+        assert entry.position == 2
 
 
 def test_upload_requires_file_field(temp_db):

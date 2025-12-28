@@ -34,6 +34,7 @@ class Work(Base):
         back_populates="works",
         viewonly=False,
     )
+    series_entries: Mapped[List["SeriesEntry"]] = relationship(back_populates="work")
 
 
 class Edition(Base):
@@ -186,7 +187,7 @@ class SeriesEntry(Base):
     position: Mapped[Optional[float]]
 
     series: Mapped[Series] = relationship(back_populates="entries")
-    work: Mapped[Work] = relationship()
+    work: Mapped[Work] = relationship(back_populates="series_entries")
 
 
 class Task(Base):

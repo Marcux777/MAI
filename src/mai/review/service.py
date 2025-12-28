@@ -29,6 +29,8 @@ def _candidate_to_dict(entry: dict) -> dict:
         "language": candidate.language,
         "cover_url": candidate.cover_url,
         "categories": candidate.categories,
+        "series": candidate.series,
+        "series_position": candidate.series_position,
     }
 
 

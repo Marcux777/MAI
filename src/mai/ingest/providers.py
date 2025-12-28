@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Iterable, List, Optional, Sequence
 
 import httpx
@@ -44,6 +45,85 @@ def _merge_categories(*values: Iterable[str]) -> List[str]:
     return merged
 
 
+_SERIES_POSITION_RE = re.compile(r"(?i)(?:#|book|vol(?:\.|ume)?|tome|no\.?)\s*(\d+(?:\.\d+)?)")
+_SERIES_IN_PARENS_RE = re.compile(
+    r"(?i)\((?P<series>[^)]*?)\s*(?:#|book|vol(?:\.|ume)?|tome|no\.?)\s*(?P<num>\d+(?:\.\d+)?)\)"
+)
+_SERIES_TRAILING_NUM_RE = re.compile(r"(?i)^(?P<name>.+?)[\s,;:-]+(?P<num>\d+(?:\.\d+)?)$")
+
+
+def _parse_series_position(value: object | None) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        match = re.search(r"\d+(?:\.\d+)?", value)
+        if match:
+            return float(match.group(0))
+    return None
+
+
+def _parse_series_entry(raw: str) -> tuple[str | None, Optional[float]]:
+    text = " ".join((raw or "").strip().split())
+    if not text:
+        return None, None
+
+    match = _SERIES_POSITION_RE.search(text)
+    if match:
+        position = _parse_series_position(match.group(1))
+        name = _SERIES_POSITION_RE.sub("", text).strip(" -–:;,#()[]")
+        return name or None, position
+
+    trailing = _SERIES_TRAILING_NUM_RE.match(text)
+    if trailing:
+        name = trailing.group("name").strip(" -–:;,#()[]")
+        position = _parse_series_position(trailing.group("num"))
+        return name or None, position
+
+    return text, None
+
+
+def _infer_series_from_title(title: str | None) -> tuple[str | None, Optional[float]]:
+    if not title:
+        return None, None
+    match = _SERIES_IN_PARENS_RE.search(title)
+    if not match:
+        return None, None
+    name = (match.group("series") or "").strip(" -–:;,#()[]")
+    position = _parse_series_position(match.group("num"))
+    return (name or None), position
+
+
+def _extract_series(value: object | None) -> tuple[str | None, Optional[float]]:
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        return _parse_series_entry(value)
+    if isinstance(value, dict):
+        name = value.get("name") or value.get("title") or value.get("series")
+        position = _parse_series_position(
+            value.get("position")
+            or value.get("number")
+            or value.get("sequence")
+            or value.get("orderNumber")
+            or value.get("bookDisplayNumber")
+        )
+        if name:
+            return str(name), position
+        nested = value.get("series") or value.get("seriesList") or value.get("volumeSeries")
+        if nested:
+            return _extract_series(nested)
+        return None, position
+    if isinstance(value, Sequence):
+        for entry in value:
+            name, position = _extract_series(entry)
+            if name:
+                return name, position
+        return None, None
+    return None, None
+
+
 class OpenLibraryProvider(Provider):
     base_url = "https://openlibrary.org"
     slug = "openlibrary"
@@ -60,6 +140,9 @@ class OpenLibraryProvider(Provider):
             _as_string_list(doc.get("subject_facet")),
             _as_string_list(doc.get("subject_key")),
         )
+        series_name, series_position = _extract_series(doc.get("series") or doc.get("series_name"))
+        if not series_name:
+            series_name, series_position = _infer_series_from_title(doc.get("title"))
         return Candidate(
             source="openlibrary",
             title=doc.get("title"),
@@ -74,6 +157,8 @@ class OpenLibraryProvider(Provider):
             cover_url=f"https://covers.openlibrary.org/b/isbn/{isbn13}-L.jpg",
             payload=doc,
             categories=categories,
+            series=series_name,
+            series_position=series_position,
         )
 
     def search(self, query: str) -> List[Candidate]:
@@ -86,6 +171,9 @@ class OpenLibraryProvider(Provider):
                 _as_string_list(doc.get("subject_facet")),
                 _as_string_list(doc.get("subject_key")),
             )
+            series_name, series_position = _extract_series(doc.get("series") or doc.get("series_name"))
+            if not series_name:
+                series_name, series_position = _infer_series_from_title(doc.get("title"))
             hits.append(
                 Candidate(
                     source="openlibrary",
@@ -101,6 +189,8 @@ class OpenLibraryProvider(Provider):
                     cover_url=None,
                     payload=doc,
                     categories=categories,
+                    series=series_name,
+                    series_position=series_position,
                 )
             )
         return hits
@@ -127,6 +217,11 @@ class GoogleBooksProvider(Provider):
             return None
         item = items[0]
         info = item.get("volumeInfo", {})
+        series_name, series_position = _extract_series(info.get("seriesInfo"))
+        if not series_name:
+            series_name, series_position = _extract_series(info.get("series"))
+        if not series_name:
+            series_name, series_position = _infer_series_from_title(info.get("title"))
         return Candidate(
             source="google_books",
             title=info.get("title"),
@@ -138,6 +233,8 @@ class GoogleBooksProvider(Provider):
             cover_url=(info.get("imageLinks") or {}).get("thumbnail"),
             payload=item,
             categories=_as_string_list(info.get("categories")),
+            series=series_name,
+            series_position=series_position,
         )
 
     def search(self, query: str) -> List[Candidate]:
@@ -145,6 +242,11 @@ class GoogleBooksProvider(Provider):
         hits: List[Candidate] = []
         for item in data.get("items", [])[:5]:
             info = item.get("volumeInfo", {})
+            series_name, series_position = _extract_series(info.get("seriesInfo"))
+            if not series_name:
+                series_name, series_position = _extract_series(info.get("series"))
+            if not series_name:
+                series_name, series_position = _infer_series_from_title(info.get("title"))
             hits.append(
                 Candidate(
                     source="google_books",
@@ -157,6 +259,8 @@ class GoogleBooksProvider(Provider):
                     cover_url=(info.get("imageLinks") or {}).get("thumbnail"),
                     payload=item,
                     categories=_as_string_list(info.get("categories")),
+                    series=series_name,
+                    series_position=series_position,
                 )
             )
         return hits
@@ -225,6 +329,9 @@ class BookBrainzProvider(Provider):
             _as_string_list(entity.get("subjects")),
             _as_string_list(entity.get("subject")),
         )
+        series_name, series_position = _extract_series(entity.get("seriesSet") or entity.get("series"))
+        if not series_name:
+            series_name, series_position = _infer_series_from_title(title)
         return Candidate(
             source="bookbrainz",
             title=title,
@@ -236,6 +343,8 @@ class BookBrainzProvider(Provider):
             cover_url=None,
             payload=entity,
             categories=categories,
+            series=series_name,
+            series_position=series_position,
         )
 
 

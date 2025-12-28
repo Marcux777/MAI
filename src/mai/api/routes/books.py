@@ -24,6 +24,7 @@ from mai.schemas.books import (
     MatchEventSchema,
     PaginatedBooks,
     ProviderHitSchema,
+    SeriesSchema,
     WorkSchema,
 )
 
@@ -90,6 +91,9 @@ def list_books(
         .limit(limit)
         .options(
             selectinload(models.Edition.work).selectinload(models.Work.authors),
+            selectinload(models.Edition.work)
+            .selectinload(models.Work.series_entries)
+            .selectinload(models.SeriesEntry.series),
             selectinload(models.Edition.files),
             selectinload(models.Edition.identifiers),
             selectinload(models.Edition.tags),
@@ -107,6 +111,7 @@ def serialize_book(edition: models.Edition) -> BookListItem:
     identifiers = [IdentifierSchema(scheme=i.scheme, value=i.value) for i in edition.identifiers]
     tags = [t.name for t in edition.tags]
     work_title = edition.work.title if edition.work else (edition.title or "")
+    series_schema = _series_for_work(edition.work) if edition.work else None
 
     edition_schema = EditionSchema(
         id=edition.id,
@@ -126,6 +131,7 @@ def serialize_book(edition: models.Edition) -> BookListItem:
         files=files,
         identifiers=identifiers,
         tags=tags,
+        series=series_schema,
     )
 
 
@@ -136,6 +142,9 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         .where(models.Edition.id == edition_id)
         .options(
             selectinload(models.Edition.work).selectinload(models.Work.authors),
+            selectinload(models.Edition.work)
+            .selectinload(models.Work.series_entries)
+            .selectinload(models.SeriesEntry.series),
             selectinload(models.Edition.files),
             selectinload(models.Edition.identifiers),
             selectinload(models.Edition.tags),
@@ -213,9 +222,23 @@ def get_book_detail(edition_id: int, db: Session = Depends(get_db)) -> BookDetai
         identifiers=identifiers,
         files=files,
         tags=tags,
+        series=_series_for_work(edition.work) if edition.work else None,
         providers=providers,
         history=history,
     )
+
+
+def _series_for_work(work: models.Work | None) -> SeriesSchema | None:
+    if not work:
+        return None
+    entries = list(work.series_entries or [])
+    if not entries:
+        return None
+    entries.sort(key=lambda entry: (entry.position is None, entry.position or 0.0, entry.series.name))
+    entry = entries[0]
+    if not entry.series:
+        return None
+    return SeriesSchema(name=entry.series.name, position=entry.position)
 
 
 @router.patch("/{edition_id}", response_model=BookDetail)
@@ -272,6 +295,17 @@ def update_book(edition_id: int, body: BookUpdateRequest, db: Session = Depends(
             library_crud.set_edition_identifiers(db, edition, pairs)
         except library_crud.IdentifierConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
+
+    if "series" in fields or "series_position" in fields:
+        current = _series_for_work(work)
+        series_name = body.series if "series" in fields else (current.name if current else None)
+        series_position = (
+            body.series_position
+            if "series_position" in fields
+            else (current.position if current else None)
+        )
+        library_crud.set_work_series(db, work, series_name, series_position)
+        touched_work = True
 
     now = datetime.utcnow()
     library_crud.touch_edition(edition)

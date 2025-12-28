@@ -63,6 +63,8 @@ def fetch(body: ProviderFetchRequest, db: Session = Depends(get_db)) -> Provider
             language=item["candidate"].language,
             cover_url=item["candidate"].cover_url,
             categories=item["candidate"].categories,
+            series=item["candidate"].series,
+            series_position=item["candidate"].series_position,
         )
         for item in ranked
     ]

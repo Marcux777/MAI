@@ -17,3 +17,5 @@ class CandidateInfo(BaseModel):
     language: Optional[str]
     cover_url: Optional[str]
     categories: List[str] = Field(default_factory=list)
+    series: Optional[str] = None
+    series_position: Optional[float] = None
