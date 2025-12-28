@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -42,7 +43,7 @@ class EditionDetail:
     subtitle: str
     authors: List[str]
     year: Optional[int]
-    pages: Optional[int]
+    pages: Optional[int] = None
     language: Optional[str]
     description: Optional[str]
     rating: Optional[float] = None
@@ -126,6 +127,8 @@ class LibraryStats:
     file_count: int
     author_count: int
     format_count: int
+    read_count: int = 0
+    unread_count: int = 0
     total_pages: int = 0
     pages_with_count: int = 0
     avg_pages: float | None = None
@@ -133,6 +136,15 @@ class LibraryStats:
     max_pages_title: str | None = None
     reading_hours: float | None = None
     pages_per_hour: float = 0.0
+    total_file_bytes: int = 0
+    avg_file_bytes: float | None = None
+    year_min: int | None = None
+    year_max: int | None = None
+    top_authors: List[CountStat] = field(default_factory=list)
+    top_series: List[CountStat] = field(default_factory=list)
+    series_without_gaps: int = 0
+    series_with_gaps: int = 0
+    series_unknown: int = 0
     tag_counts: List[CountStat] = field(default_factory=list)
     format_counts: List[CountStat] = field(default_factory=list)
     year_counts: List[YearStat] = field(default_factory=list)
@@ -287,6 +299,20 @@ class LibraryService:
             edition_count = int(session.scalar(select(func.count(models.Edition.id))) or 0)
             file_count = int(session.scalar(select(func.count(models.File.id))) or 0)
             author_count = int(session.scalar(select(func.count(models.Author.id))) or 0)
+            read_count = int(
+                session.scalar(
+                    select(func.count(models.Edition.id)).where(models.Edition.read_status == "read")
+                )
+                or 0
+            )
+            unread_count = int(
+                session.scalar(
+                    select(func.count(models.Edition.id)).where(
+                        or_(models.Edition.read_status != "read", models.Edition.read_status.is_(None))
+                    )
+                )
+                or 0
+            )
 
             fmt_expr = func.upper(models.Edition.format)
             format_count = int(
@@ -361,12 +387,86 @@ class LibraryService:
                 (total_pages / pages_per_hour) if pages_per_hour > 0 and total_pages > 0 else None
             )
 
+            size_filter = [models.File.size_bytes.is_not(None), models.File.size_bytes > 0]
+            total_file_bytes = int(
+                session.scalar(select(func.sum(models.File.size_bytes)).where(*size_filter)) or 0
+            )
+            files_with_size = int(
+                session.scalar(select(func.count(models.File.id)).where(*size_filter)) or 0
+            )
+            avg_file_bytes = (total_file_bytes / files_with_size) if files_with_size else None
+
+            year_min_raw = session.scalar(
+                select(func.min(models.Edition.pub_year)).where(models.Edition.pub_year.is_not(None))
+            )
+            year_max_raw = session.scalar(
+                select(func.max(models.Edition.pub_year)).where(models.Edition.pub_year.is_not(None))
+            )
+            year_min = int(year_min_raw) if year_min_raw is not None else None
+            year_max = int(year_max_raw) if year_max_raw is not None else None
+
+            author_rows = session.execute(
+                select(models.Author.name, func.count(func.distinct(models.Edition.id)))
+                .join(models.WorkAuthor, models.WorkAuthor.author_id == models.Author.id)
+                .join(models.Work, models.Work.id == models.WorkAuthor.work_id)
+                .join(models.Edition, models.Edition.work_id == models.Work.id)
+                .group_by(models.Author.id)
+                .order_by(func.count(func.distinct(models.Edition.id)).desc(), models.Author.name.asc())
+                .limit(5)
+            ).all()
+            top_authors = [CountStat(label=name, count=int(count or 0)) for name, count in author_rows]
+
+            series_rows = session.execute(
+                select(models.Series.name, func.count(func.distinct(models.Edition.id)))
+                .join(models.SeriesEntry, models.SeriesEntry.series_id == models.Series.id)
+                .join(models.Work, models.Work.id == models.SeriesEntry.work_id)
+                .join(models.Edition, models.Edition.work_id == models.Work.id)
+                .group_by(models.Series.id)
+                .order_by(func.count(func.distinct(models.Edition.id)).desc(), models.Series.name.asc())
+                .limit(5)
+            ).all()
+            top_series = [CountStat(label=name, count=int(count or 0)) for name, count in series_rows]
+
+            series_entries = session.execute(
+                select(models.Series.name, models.SeriesEntry.position)
+                .join(models.SeriesEntry, models.SeriesEntry.series_id == models.Series.id)
+            ).all()
+            positions_by_series: dict[str, list[float | None]] = defaultdict(list)
+            for name, position in series_entries:
+                positions_by_series[str(name)].append(position)
+
+            series_without_gaps = 0
+            series_with_gaps = 0
+            series_unknown = 0
+            for positions in positions_by_series.values():
+                if not positions:
+                    series_unknown += 1
+                    continue
+                if any(pos is None for pos in positions):
+                    series_unknown += 1
+                    continue
+                numeric = [float(pos) for pos in positions if pos is not None]
+                if any(not value.is_integer() for value in numeric):
+                    series_unknown += 1
+                    continue
+                ordered = sorted({int(value) for value in numeric})
+                if not ordered:
+                    series_unknown += 1
+                    continue
+                expected = ordered[-1] - ordered[0] + 1
+                if expected == len(ordered):
+                    series_without_gaps += 1
+                else:
+                    series_with_gaps += 1
+
             return LibraryStats(
                 work_count=work_count,
                 edition_count=edition_count,
                 file_count=file_count,
                 author_count=author_count,
                 format_count=format_count,
+                read_count=read_count,
+                unread_count=unread_count,
                 total_pages=total_pages,
                 pages_with_count=pages_with_count,
                 avg_pages=avg_pages,
@@ -374,6 +474,15 @@ class LibraryService:
                 max_pages_title=max_pages_title,
                 reading_hours=reading_hours,
                 pages_per_hour=pages_per_hour,
+                total_file_bytes=total_file_bytes,
+                avg_file_bytes=avg_file_bytes,
+                year_min=year_min,
+                year_max=year_max,
+                top_authors=top_authors,
+                top_series=top_series,
+                series_without_gaps=series_without_gaps,
+                series_with_gaps=series_with_gaps,
+                series_unknown=series_unknown,
                 tag_counts=tag_counts,
                 format_counts=format_counts,
                 year_counts=year_counts,
