@@ -24,3 +24,6 @@ class Candidate:
     ids: Dict[str, Optional[str]]
     cover_url: Optional[str]
     payload: Dict
+    categories: List[str] = field(default_factory=list)
+    series: Optional[str] = None
+    series_position: Optional[float] = None

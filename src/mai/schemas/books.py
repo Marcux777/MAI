@@ -47,6 +47,7 @@ class BookListItem(BaseModel):
     files: List[FileSchema]
     identifiers: List[IdentifierSchema]
     tags: List[str] = Field(default_factory=list)
+    series: Optional[SeriesSchema] = None
 
 
 class PaginatedBooks(BaseModel):
@@ -79,6 +80,11 @@ class WorkSchema(BaseModel):
     description: Optional[str]
 
 
+class SeriesSchema(BaseModel):
+    name: str
+    position: Optional[float] = None
+
+
 class BookDetail(BaseModel):
     edition: EditionSchema
     work: Optional[WorkSchema]
@@ -86,6 +92,7 @@ class BookDetail(BaseModel):
     identifiers: List[IdentifierSchema]
     files: List[FileDetailSchema]
     tags: List[str] = Field(default_factory=list)
+    series: Optional[SeriesSchema] = None
     providers: List[ProviderHitSchema]
     history: List[MatchEventSchema]
 
@@ -100,6 +107,8 @@ class BookUpdateRequest(BaseModel):
     authors: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     identifiers: Optional[List[IdentifierSchema]] = None
+    series: Optional[str] = None
+    series_position: Optional[float] = None
 
 
 class BookDeleteResponse(BaseModel):

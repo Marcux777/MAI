@@ -42,6 +42,7 @@ def test_pdf_isbn_triggers_get_by_isbn_and_autofills_metadata(temp_db, tmp_path)
                 ids={"ISBN13": isbn},
                 cover_url=None,
                 payload={},
+                categories=["Fiction / Suspense", "Mistério"],
             )
 
         def search(self, query: str):
@@ -70,3 +71,5 @@ def test_pdf_isbn_triggers_get_by_isbn_and_autofills_metadata(temp_db, tmp_path)
         assert identify.auto_accepted is True
         assert identify.chosen_provider == "dummy"
 
+        tags = {tag.name for tag in edition.tags}
+        assert tags == {"Fiction", "Suspense", "Mistério"}

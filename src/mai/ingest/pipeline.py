@@ -28,6 +28,7 @@ from mai.utils.files import compute_sha256
 SUPPORTED_EXTENSIONS = {".epub", ".pdf", ".mobi", ".azw", ".azw3"}
 ACCEPT_THRESHOLD = 0.85
 _UPLOAD_PREFIX_RE = re.compile(r"(?i)^[0-9a-f]{32}_(.+)$")
+_CATEGORY_SPLIT_RE = re.compile(r"\s*[/>]\s*")
 
 
 def _stem_hint(path: Path) -> str:
@@ -36,6 +37,101 @@ def _stem_hint(path: Path) -> str:
     if match:
         stem = match.group(1)
     return stem
+
+
+def _clean_tag_strings(values: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        value = " ".join((item or "").strip().split())
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
+
+
+def _normalize_categories(categories: Iterable[str]) -> list[str]:
+    parts: list[str] = []
+    for raw in categories:
+        if not raw:
+            continue
+        text = str(raw)
+        segments = _CATEGORY_SPLIT_RE.split(text)
+        if len(segments) == 1:
+            parts.append(text)
+        else:
+            parts.extend(segments)
+    return _clean_tag_strings(parts)
+
+
+def _set_edition_tags(session, edition: models.Edition, tag_names: Iterable[str]) -> None:
+    names = _clean_tag_strings(tag_names)
+    tags: list[models.Tag] = []
+    for name in names:
+        tag = session.scalar(select(models.Tag).where(models.Tag.name == name))
+        if not tag:
+            tag = models.Tag(name=name)
+            session.add(tag)
+            session.flush()
+        tags.append(tag)
+    edition.tags = tags
+
+
+def _merge_tags_from_categories(session, edition: models.Edition, categories: Iterable[str]) -> None:
+    normalized = _normalize_categories(categories)
+    if not normalized:
+        return
+    existing = [tag.name for tag in edition.tags]
+    merged = _clean_tag_strings([*existing, *normalized])
+    _set_edition_tags(session, edition, merged)
+
+
+def _upsert_series_entry(
+    session,
+    work: models.Work,
+    series_name: str | None,
+    position: float | None,
+    *,
+    replace: bool = False,
+) -> None:
+    name = " ".join((series_name or "").strip().split())
+    if not name:
+        if replace:
+            session.execute(
+                delete(models.SeriesEntry).where(models.SeriesEntry.work_id == work.id)
+            )
+        return
+
+    series = session.scalar(select(models.Series).where(models.Series.name == name))
+    if not series:
+        series = models.Series(name=name)
+        session.add(series)
+        session.flush()
+
+    entries = session.scalars(
+        select(models.SeriesEntry).where(models.SeriesEntry.work_id == work.id)
+    ).all()
+    entry = next((item for item in entries if item.series_id == series.id), None)
+
+    if replace:
+        for item in entries:
+            if item.series_id != series.id:
+                session.delete(item)
+
+    if entry:
+        entry.position = position
+    else:
+        session.add(
+            models.SeriesEntry(
+                series_id=series.id,
+                work_id=work.id,
+                position=position,
+            )
+        )
 
 
 def build_providers(google_key: Optional[str] = None) -> List[Provider]:
@@ -174,7 +270,6 @@ def persist(
     )
     session.add(edition)
     session.flush()
-    upsert_for_edition(session, edition.id)
 
     identifiers = []
     if candidate:
@@ -203,6 +298,17 @@ def persist(
         ):
             session.add(models.Identifier(edition_id=edition.id, scheme=scheme, value=value))
 
+    if candidate and candidate.categories:
+        _merge_tags_from_categories(session, edition, candidate.categories)
+    if candidate and candidate.series and work:
+        _upsert_series_entry(
+            session,
+            work,
+            candidate.series,
+            candidate.series_position,
+            replace=False,
+        )
+
     file_record = models.File(
         edition_id=edition.id,
         path=str(path),
@@ -219,6 +325,7 @@ def persist(
     if candidate:
         upsert_provider_hit(session, edition.id, candidate, score=1.0)
 
+    upsert_for_edition(session, edition.id)
     record_identification(session, edition.id, ranked_candidates, candidate, top_score)
 
 
@@ -365,6 +472,9 @@ def record_identification(
                 "year": candidate.year,
                 "language": candidate.language,
                 "cover_url": candidate.cover_url,
+                "categories": candidate.categories,
+                "series": candidate.series,
+                "series_position": candidate.series_position,
                 "payload": candidate.payload,
             }
         )
@@ -461,6 +571,17 @@ def apply_candidate_to_edition(session, edition: models.Edition, candidate: Cand
                 session.flush()
             work.authors.append(author)
 
+    if candidate.categories:
+        _merge_tags_from_categories(session, edition, candidate.categories)
+    if candidate.series and work:
+        _upsert_series_entry(
+            session,
+            work,
+            candidate.series,
+            candidate.series_position,
+            replace=False,
+        )
+
     session.flush()
 
 
@@ -522,6 +643,9 @@ def deserialize_ranked_candidates(payload_json: str) -> List[dict]:
             ids=item.get("ids") or {},
             cover_url=item.get("cover_url"),
             payload=item.get("payload") or {},
+            categories=item.get("categories") or [],
+            series=item.get("series"),
+            series_position=item.get("series_position"),
         )
         ranked.append(
             {

@@ -235,6 +235,8 @@ class DetailPanel(QWidget):
         form = QFormLayout(widget)
         self.title_edit = QLineEdit()
         self.subtitle_edit = QLineEdit()
+        self.series_edit = QLineEdit()
+        self.series_position_edit = QLineEdit()
         self.author_edit = QLineEdit()
         self.tags_edit = QLineEdit()
         self.year_edit = QLineEdit()
@@ -242,6 +244,8 @@ class DetailPanel(QWidget):
         self.description_edit = QTextEdit()
         form.addRow("Título", self.title_edit)
         form.addRow("Subtítulo", self.subtitle_edit)
+        form.addRow("Série", self.series_edit)
+        form.addRow("Volume", self.series_position_edit)
         form.addRow("Autores", self.author_edit)
         form.addRow("Tags", self.tags_edit)
         form.addRow("Ano", self.year_edit)
@@ -268,6 +272,8 @@ class DetailPanel(QWidget):
         if not detail:
             self.title_edit.clear()
             self.subtitle_edit.clear()
+            self.series_edit.clear()
+            self.series_position_edit.clear()
             self.author_edit.clear()
             self.tags_edit.clear()
             self.year_edit.clear()
@@ -282,6 +288,8 @@ class DetailPanel(QWidget):
         self.fetch_btn.setEnabled(True)
         self.title_edit.setText(detail.title)
         self.subtitle_edit.setText(detail.subtitle or "")
+        self.series_edit.setText(detail.series or "")
+        self.series_position_edit.setText("" if detail.series_position is None else str(detail.series_position))
         self.author_edit.setText(", ".join(detail.authors))
         self.tags_edit.setText(", ".join(detail.tags))
         self.year_edit.setText(str(detail.year or ""))
@@ -298,10 +306,20 @@ class DetailPanel(QWidget):
             year_value = int(self.year_edit.text()) if self.year_edit.text().strip() else None
         except ValueError:
             year_value = None
+        try:
+            series_position = (
+                float(self.series_position_edit.text())
+                if self.series_position_edit.text().strip()
+                else None
+            )
+        except ValueError:
+            series_position = None
         detail = EditionDetail(
             edition_id=self.current_detail.edition_id,
             title=self.title_edit.text().strip(),
             subtitle=self.subtitle_edit.text().strip(),
+            series=self.series_edit.text().strip() or None,
+            series_position=series_position,
             authors=[name.strip() for name in self.author_edit.text().split(",") if name.strip()],
             tags=[name.strip() for name in self.tags_edit.text().split(",") if name.strip()],
             year=year_value,

@@ -93,6 +93,44 @@ def set_edition_identifiers(session: Session, edition: models.Edition, identifie
         session.add(models.Identifier(edition_id=edition.id, scheme=scheme, value=value))
 
 
+def set_work_series(
+    session: Session,
+    work: models.Work,
+    series_name: str | None,
+    position: float | None,
+) -> None:
+    name = " ".join((series_name or "").strip().split())
+    entries = session.scalars(
+        select(models.SeriesEntry).where(models.SeriesEntry.work_id == work.id)
+    ).all()
+    if not name:
+        for entry in entries:
+            session.delete(entry)
+        return
+
+    series = session.scalar(select(models.Series).where(models.Series.name == name))
+    if not series:
+        series = models.Series(name=name)
+        session.add(series)
+        session.flush()
+
+    entry = next((item for item in entries if item.series_id == series.id), None)
+    for item in entries:
+        if item.series_id != series.id:
+            session.delete(item)
+
+    if entry:
+        entry.position = position
+    else:
+        session.add(
+            models.SeriesEntry(
+                series_id=series.id,
+                work_id=work.id,
+                position=position,
+            )
+        )
+
+
 def touch_work(work: models.Work) -> None:
     work.updated_at = datetime.utcnow()
     work.sort_title = normalize(work.title)
@@ -209,4 +247,3 @@ def _find_identifier_conflicts(
         if existing and int(existing.edition_id) != int(edition_id):
             conflicts.append((scheme, value, int(existing.edition_id)))
     return conflicts
-

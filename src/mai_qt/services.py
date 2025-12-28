@@ -41,6 +41,8 @@ class EditionDetail:
     year: Optional[int]
     language: Optional[str]
     description: Optional[str]
+    series: Optional[str] = None
+    series_position: Optional[float] = None
     tags: List[str] = field(default_factory=list)
     identifiers: List['IdentifierRow'] = field(default_factory=list)
     files: List['FileRow'] = field(default_factory=list)
@@ -196,6 +198,9 @@ class LibraryService:
                 .limit(limit)
                 .options(
                     selectinload(models.Edition.work).selectinload(models.Work.authors),
+                    selectinload(models.Edition.work)
+                    .selectinload(models.Work.series_entries)
+                    .selectinload(models.SeriesEntry.series),
                     selectinload(models.Edition.tags),
                     selectinload(models.Edition.files),
                 )
@@ -207,6 +212,7 @@ class LibraryService:
 
             rows: List[BookRow] = []
             for edition in editions:
+                series_name, series_position = _series_for_work(edition.work)
                 authors = ", ".join(a.name for a in (edition.work.authors if edition.work else []))
                 tags = ", ".join(t.name for t in edition.tags)
                 file_path = edition.files[0].path if edition.files else None
@@ -216,7 +222,7 @@ class LibraryService:
                         title=edition.title or (edition.work.title if edition.work else "(sem título)"),
                         authors=authors,
                         year=edition.pub_year,
-                        series=None,
+                        series=series_name,
                         language=edition.language,
                         tags=tags,
                         fmt=edition.format,
@@ -233,6 +239,9 @@ class LibraryService:
                 .where(models.Edition.id == edition_id)
                 .options(
                     selectinload(models.Edition.work).selectinload(models.Work.authors),
+                    selectinload(models.Edition.work)
+                    .selectinload(models.Work.series_entries)
+                    .selectinload(models.SeriesEntry.series),
                     selectinload(models.Edition.identifiers),
                     selectinload(models.Edition.files),
                     selectinload(models.Edition.tags),
@@ -243,6 +252,7 @@ class LibraryService:
                 return None
             work = edition.work
             authors = [a.name for a in (work.authors if work else [])]
+            series_name, series_position = _series_for_work(work)
             detail = EditionDetail(
                 edition_id=edition.id,
                 title=edition.title or (work.title if work else ""),
@@ -251,6 +261,8 @@ class LibraryService:
                 year=edition.pub_year,
                 language=edition.language or (work.language if work else None),
                 description=(work.description if work else None),
+                series=series_name,
+                series_position=series_position,
                 tags=[t.name for t in edition.tags],
             )
             detail.identifiers = [IdentifierRow(id.scheme, id.value) for id in edition.identifiers]
@@ -315,6 +327,8 @@ class LibraryService:
             # Atualiza autores
             library_crud.set_work_authors(session, work, detail.authors)
 
+            library_crud.set_work_series(session, work, detail.series, detail.series_position)
+
             # Atualiza tags
             library_crud.set_edition_tags(session, edition, detail.tags)
 
@@ -348,6 +362,19 @@ class LibraryService:
                     deleted_files += result.deleted_files
                     disk_errors.extend(result.disk_errors)
         return {"deleted": deleted, "deleted_files": deleted_files, "disk_errors": disk_errors}
+
+
+def _series_for_work(work: models.Work | None) -> tuple[str | None, float | None]:
+    if not work:
+        return None, None
+    entries = list(work.series_entries or [])
+    if not entries:
+        return None, None
+    entries.sort(key=lambda entry: (entry.position is None, entry.position or 0.0, entry.series.name))
+    entry = entries[0]
+    if not entry.series:
+        return None, None
+    return entry.series.name, entry.position
 
 
 class CollectionService:
