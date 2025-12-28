@@ -3,17 +3,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QUrl, Qt
+from PySide6.QtCore import QEvent, QObject, QUrl, Qt, QSize
 from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QDockWidget,
+    QFrame,
+    QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QStackedWidget,
     QMessageBox,
     QToolBar,
     QVBoxLayout,
+    QStyle,
     QWidget,
 )
 
@@ -128,7 +134,22 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.stack = QStackedWidget()
         self.stack.setAcceptDrops(True)
-        self.setCentralWidget(self.stack)
+        self.nav_list = QListWidget()
+        self.nav_list.setObjectName("navList")
+        self.nav_list.setFrameShape(QFrame.Shape.NoFrame)
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.nav_list.setSpacing(2)
+        self.nav_list.setIconSize(QSize(20, 20))
+        self.nav_list.setMinimumWidth(180)
+
+        central = QWidget()
+        central_layout = QHBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.nav_list)
+        central_layout.addWidget(self.stack, 1)
+        self.setCentralWidget(central)
         self._drop_overlay = _DropOverlay(self)
         self._drop_overlay.setGeometry(self.rect())
 
@@ -166,9 +187,42 @@ class MainWindow(QMainWindow):
         ]:
             self.stack.addWidget(page)
 
+        self._build_navigation()
         self._build_collections_dock()
         self._build_detail_dock()
         self._build_toolbar()
+
+    def _build_navigation(self) -> None:
+        self.nav_items: list[tuple[str, QWidget]] = []
+
+        def add_item(title: str, page: QWidget, icon: QStyle.StandardPixmap) -> None:
+            icon_obj = self.style().standardIcon(icon)
+            item = QListWidgetItem(icon_obj, title)
+            item.setData(Qt.ItemDataRole.UserRole, page)
+            self.nav_list.addItem(item)
+            self.nav_items.append((title, page))
+
+        add_item("Biblioteca", self.library_page, QStyle.StandardPixmap.SP_DirHomeIcon)
+        add_item("Importar", self.import_page, QStyle.StandardPixmap.SP_DialogOpenButton)
+        add_item("Organizador", self.organizer_page, QStyle.StandardPixmap.SP_DirOpenIcon)
+        add_item("Revisão", self.review_page, QStyle.StandardPixmap.SP_MessageBoxQuestion)
+        add_item("Tarefas", self.tasks_page, QStyle.StandardPixmap.SP_BrowserReload)
+        add_item("Métricas", self.metrics_page, QStyle.StandardPixmap.SP_FileDialogInfoView)
+        add_item("Configurações", self.settings_page, QStyle.StandardPixmap.SP_FileDialogDetailedView)
+
+        self.nav_list.currentRowChanged.connect(self._on_nav_changed)  # type: ignore[attr-defined]
+        if self.nav_list.count() > 0:
+            self.nav_list.setCurrentRow(0)
+
+    def _on_nav_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        item = self.nav_list.item(index)
+        if not item:
+            return
+        page = item.data(Qt.ItemDataRole.UserRole)
+        if page:
+            self.stack.setCurrentWidget(page)
 
     def _build_collections_dock(self) -> None:
         dock = QDockWidget("Biblioteca", self)
@@ -197,22 +251,6 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("MAI", self)
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
-
-        def nav(title: str, page) -> QAction:
-            action = QAction(title, self)
-            action.triggered.connect(lambda: self.stack.setCurrentWidget(page))  # type: ignore[attr-defined]
-            toolbar.addAction(action)
-            return action
-
-        nav("Biblioteca", self.library_page)
-        nav("Revisão", self.review_page)
-        nav("Organizer", self.organizer_page)
-        nav("Importar", self.import_page)
-        nav("Tarefas", self.tasks_page)
-        nav("Métricas", self.metrics_page)
-        nav("Config", self.settings_page)
-
-        toolbar.addSeparator()
 
         self.action_new_collection = QAction("Nova coleção", self)
         self.action_new_collection.triggered.connect(lambda: self.collection_tree.prompt_new_collection())  # type: ignore[attr-defined]
