@@ -181,11 +181,21 @@ class BackendClient:
     def get_manifest_detail(self, manifest_id: int) -> dict:
         return self._request("GET", f"/organize/{manifest_id}")
 
-    def apply_manifest(self, manifest_id: int) -> dict:
-        return self._request("POST", f"/organize/apply/{manifest_id}", json={})
+    def apply_manifest(self, manifest_id: int, enqueue: bool = True) -> dict:
+        return self._request(
+            "POST",
+            f"/organize/apply/{manifest_id}",
+            params={"enqueue": str(enqueue).lower()},
+            json={},
+        )
 
-    def rollback_manifest(self, manifest_id: int) -> dict:
-        return self._request("POST", f"/organize/rollback/{manifest_id}")
+    def rollback_manifest(self, manifest_id: int, enqueue: bool = True) -> dict:
+        return self._request(
+            "POST",
+            f"/organize/rollback/{manifest_id}",
+            params={"enqueue": str(enqueue).lower()},
+            json={},
+        )
 
     def import_scan(self, paths: List[str]) -> dict:
         return self._request("POST", "/import/scan", json={"paths": paths or None})
@@ -215,6 +225,14 @@ class BackendClient:
 
     def watch_stop(self) -> dict:
         return self._request("DELETE", "/import/watch")
+
+    def fetch_tasks(self, limit: int = 50, status: str | None = None, kind: str | None = None) -> dict:
+        params: dict[str, str] = {"limit": str(limit)}
+        if status:
+            params["status"] = status
+        if kind:
+            params["kind"] = kind
+        return self._request("GET", "/tasks", params=params)
 
     def fetch_providers(self, edition_id: int, providers: Optional[List[str]] = None, auto_apply: bool = True) -> dict:
         payload = {

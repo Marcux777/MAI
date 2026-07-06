@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from mai.api.dependencies import get_db
@@ -22,6 +22,7 @@ from mai.schemas.organize import (
     OrganizeApplyIn,
     OrganizeManifestDetail,
 )
+from mai.tasks.queue import TASK_KIND_ORGANIZE_APPLY, TASK_KIND_ORGANIZE_ROLLBACK, get_task_queue
 
 router = APIRouter(prefix="/organize", tags=["organize"])
 
@@ -59,12 +60,22 @@ def preview(body: OrganizePreviewIn, db: Session = Depends(get_db)) -> OrganizeP
     )
 
 
-@router.post("/apply/{manifest_id}", response_model=OrganizeActionOut)
+@router.post("/apply/{manifest_id}", response_model=OrganizeActionOut, status_code=202)
 def apply(
     manifest_id: int,
     body: OrganizeApplyIn | None = None,
+    enqueue: bool = Query(default=True),
     db: Session = Depends(get_db),
 ) -> OrganizeActionOut:
+    if enqueue:
+        if not db.get(models.OrganizeManifest, manifest_id):
+            raise HTTPException(status_code=404, detail="Manifesto não encontrado")
+        task_id = get_task_queue().enqueue(
+            TASK_KIND_ORGANIZE_APPLY,
+            {"manifest_id": manifest_id, "statuses": body.statuses if body else None},
+        )
+        return OrganizeActionOut(manifest_id=manifest_id, status="queued", task_id=task_id)
+
     settings = get_settings()
     try:
         summary = apply_manifest(db, manifest_id, settings, statuses=body.statuses if body else None)
@@ -75,8 +86,21 @@ def apply(
     return OrganizeActionOut(manifest_id=manifest_id, status=manifest.status, summary=summary)
 
 
-@router.post("/rollback/{manifest_id}", response_model=OrganizeActionOut)
-def rollback(manifest_id: int, db: Session = Depends(get_db)) -> OrganizeActionOut:
+@router.post("/rollback/{manifest_id}", response_model=OrganizeActionOut, status_code=202)
+def rollback(
+    manifest_id: int,
+    enqueue: bool = Query(default=True),
+    db: Session = Depends(get_db),
+) -> OrganizeActionOut:
+    if enqueue:
+        if not db.get(models.OrganizeManifest, manifest_id):
+            raise HTTPException(status_code=404, detail="Manifesto não encontrado")
+        task_id = get_task_queue().enqueue(
+            TASK_KIND_ORGANIZE_ROLLBACK,
+            {"manifest_id": manifest_id},
+        )
+        return OrganizeActionOut(manifest_id=manifest_id, status="queued", task_id=task_id)
+
     settings = get_settings()
     try:
         summary = rollback_manifest(db, manifest_id, settings)

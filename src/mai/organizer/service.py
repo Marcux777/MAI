@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -115,6 +115,7 @@ def apply_manifest(
     manifest_id: int,
     settings: Settings,
     statuses: Optional[List[str]] = None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, int]:
     manifest = session.get(models.OrganizeManifest, manifest_id)
     if not manifest:
@@ -138,11 +139,21 @@ def apply_manifest(
     summary = {"done": 0, "failed": 0, "skipped": 0}
     allowed = set(statuses or ["planned", "failed"])
 
+    total_ops = len(ops)
+    processed = 0
+    if progress_cb:
+        progress_cb(processed, total_ops, "Iniciando organizacao")
     for op in ops:
         if op.status == "skipped":
             summary["skipped"] += 1
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_ops, f"Ignorado: {Path(op.src_path).name}")
             continue
         if op.status not in allowed:
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_ops, f"Pulado: {Path(op.src_path).name}")
             continue
 
         try:
@@ -153,6 +164,10 @@ def apply_manifest(
             op.error = str(exc)
             summary["failed"] += 1
             logger.exception("Falha ao aplicar operação %s: %s", op.id, exc)
+        processed += 1
+        if progress_cb:
+            label = "Falha" if op.status == "failed" else "Aplicado"
+            progress_cb(processed, total_ops, f"{label}: {Path(op.dst_path).name}")
 
     manifest.status = "applied" if summary["failed"] == 0 else "failed"
     session.flush()
@@ -161,7 +176,12 @@ def apply_manifest(
     return summary
 
 
-def rollback_manifest(session: Session, manifest_id: int, settings: Settings) -> Dict[str, int]:
+def rollback_manifest(
+    session: Session,
+    manifest_id: int,
+    settings: Settings,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+) -> Dict[str, int]:
     manifest = session.get(models.OrganizeManifest, manifest_id)
     if not manifest:
         raise ValueError(f"Manifesto {manifest_id} não encontrado")
@@ -179,8 +199,15 @@ def rollback_manifest(session: Session, manifest_id: int, settings: Settings) ->
     was_running = stop_watcher()
     summary = {"reverted": 0, "failed": 0}
 
+    total_ops = len(ops)
+    processed = 0
+    if progress_cb:
+        progress_cb(processed, total_ops, "Iniciando rollback")
     for op in ops:
         if op.status != "done":
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_ops, f"Sem rollback: {Path(op.src_path).name}")
             continue
         try:
             _rollback_op(session, op)
@@ -190,6 +217,9 @@ def rollback_manifest(session: Session, manifest_id: int, settings: Settings) ->
             op.error = str(exc)
             summary["failed"] += 1
             logger.exception("Falha ao reverter operação %s: %s", op.id, exc)
+        processed += 1
+        if progress_cb:
+            progress_cb(processed, total_ops, f"Rollback: {Path(op.src_path).name}")
 
     manifest.status = "rolled_back" if summary["failed"] == 0 else "failed"
     session.flush()

@@ -44,6 +44,7 @@ mai-api = "mai.main:run"
 mai-init-db = "mai.db.init:main"
 mai-import = "mai.ingest.cli:main"
 mai-organize = "mai.organizer.cli:main"
+mai-social = "mai.social.cli:main"
 mai-qt = "mai_qt.app:main"
 
 [tool.hatch.build.targets.wheel]

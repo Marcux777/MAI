@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     organizer_template: str = "{author_last}/{title}.{ext}"
     admin_username: str = "mai"
     admin_password: str = "mai"
+    task_workers: int = 1
 
     # OCR (PDF escaneado)
     pdf_ocr_enabled: bool = False

@@ -17,6 +17,7 @@ class ImportRequest(BaseModel):
 class ImportResponse(BaseModel):
     status: str
     paths: List[str]
+    task_id: int | None = None
 
 
 class WatchRequest(BaseModel):

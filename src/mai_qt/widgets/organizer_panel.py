@@ -89,11 +89,15 @@ class OrganizerPanel(QWidget):
         if manifest_id is None:
             return
         try:
-            result = self.backend.apply_manifest(manifest_id)
+            result = self.backend.apply_manifest(manifest_id, enqueue=True)
         except Exception as exc:
             QMessageBox.critical(self, "Organizer", str(exc))
             return
-        QMessageBox.information(self, "Organizer", f"Manifesto aplicado: {result.get('summary')}")
+        task_id = result.get("task_id")
+        if task_id:
+            QMessageBox.information(self, "Organizer", f"Manifesto enfileirado (task {task_id}).")
+        else:
+            QMessageBox.information(self, "Organizer", f"Manifesto aplicado: {result.get('summary')}")
         self.refresh()
 
     def rollback_manifest(self) -> None:
@@ -101,9 +105,13 @@ class OrganizerPanel(QWidget):
         if manifest_id is None:
             return
         try:
-            result = self.backend.rollback_manifest(manifest_id)
+            result = self.backend.rollback_manifest(manifest_id, enqueue=True)
         except Exception as exc:
             QMessageBox.critical(self, "Organizer", str(exc))
             return
-        QMessageBox.information(self, "Organizer", f"Rollback realizado: {result.get('summary')}")
+        task_id = result.get("task_id")
+        if task_id:
+            QMessageBox.information(self, "Organizer", f"Rollback enfileirado (task {task_id}).")
+        else:
+            QMessageBox.information(self, "Organizer", f"Rollback realizado: {result.get('summary')}")
         self.refresh()

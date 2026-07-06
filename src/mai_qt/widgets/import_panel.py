@@ -233,7 +233,11 @@ class ImportPanel(QWidget):
         except Exception as exc:  # pragma: no cover
             QMessageBox.critical(self, "Importação", f"Falha no scan: {exc}")
             return
-        self.log.append(f"Scan agendado: {result}")
+        task_id = result.get("task_id")
+        if task_id:
+            self.log.append(f"Scan enfileirado (task {task_id}).")
+        else:
+            self.log.append(f"Scan agendado: {result}")
 
     def start_watcher(self) -> None:
         try:
